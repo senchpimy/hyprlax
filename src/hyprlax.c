@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <time.h>
@@ -283,9 +284,17 @@ char *build_blur_shader() {
         "}\n",
         BLUR_MIN_THRESHOLD, BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
     
+    // Check if formatting failed first
+    if (written < 0) {
+        fprintf(stderr, "Error: Blur shader formatting failed\n");
+        free(shader);
+        return NULL;
+    }
+    
     // Check if the shader was truncated
-    if (written < 0 || written >= BLUR_SHADER_MAX_SIZE) {
-        fprintf(stderr, "Error: Blur shader source too large or formatting failed\n");
+    if (written >= BLUR_SHADER_MAX_SIZE) {
+        fprintf(stderr, "Error: Blur shader source too large (needed %d bytes, have %d)\n", 
+                written, BLUR_SHADER_MAX_SIZE);
         free(shader);
         return NULL;
     }
@@ -763,55 +772,120 @@ void render_frame() {
 
 // Get the maximum workspace number from Hyprland
 int detect_max_workspaces() {
-    // Try to get workspace info directly from hyprctl without jq
-    // This is safer and doesn't require external JSON parser
-    // Note: popen is used here with simple, fixed commands to hyprctl
-    // which is a trusted Hyprland binary - no user input is passed
-    FILE *fp = popen("hyprctl workspaces 2>/dev/null", "r");
-    if (fp) {
-        char buffer[256];
-        int max_ws = 0;
+    // Using fork/exec for better security than popen
+    // This avoids shell injection vulnerabilities
+    int pipefd[2];
+    pid_t pid;
+    
+    if (pipe(pipefd) == -1) {
+        return 10; // Default fallback
+    }
+    
+    pid = fork();
+    if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 10; // Default fallback
+    }
+    
+    if (pid == 0) {
+        // Child process
+        close(pipefd[0]); // Close read end
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
         
-        // Parse the output looking for workspace IDs
-        while (fgets(buffer, sizeof(buffer), fp)) {
-            // Look for lines like "workspace ID X"
-            char *id_str = strstr(buffer, "workspace ID ");
-            if (id_str) {
-                int ws_id = 0;
-                if (sscanf(id_str, "workspace ID %d", &ws_id) == 1) {
-                    if (ws_id > max_ws) {
-                        max_ws = ws_id;
-                    }
+        // Execute hyprctl directly without shell
+        char *args[] = {"hyprctl", "workspaces", NULL};
+        execvp("hyprctl", args);
+        
+        // If exec fails, exit child
+        _exit(1);
+    }
+    
+    // Parent process
+    close(pipefd[1]); // Close write end
+    
+    FILE *fp = fdopen(pipefd[0], "r");
+    if (!fp) {
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return 10;
+    }
+    
+    char buffer[256];
+    int max_ws = 0;
+    
+    // Parse the output looking for workspace IDs
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        // Look for lines like "workspace ID X"
+        char *id_str = strstr(buffer, "workspace ID ");
+        if (id_str) {
+            int ws_id = 0;
+            if (sscanf(id_str, "workspace ID %d", &ws_id) == 1) {
+                if (ws_id > max_ws) {
+                    max_ws = ws_id;
                 }
             }
         }
-        pclose(fp);
-        
-        if (max_ws > 0) {
-            // If we only see workspaces up to 5, assume 10 (common default)
-            if (max_ws <= 5) {
-                return 10;
-            }
-            if (config.debug) {
-                printf("Detected max workspace from existing workspaces: %d\n", max_ws);
-            }
-            return max_ws;
+    }
+    fclose(fp);
+    waitpid(pid, NULL, 0);
+    
+    if (max_ws > 0) {
+        // If we only see workspaces up to 5, assume 10 (common default)
+        if (max_ws <= 5) {
+            return 10;
         }
+        if (config.debug) {
+            printf("Detected max workspace from existing workspaces: %d\n", max_ws);
+        }
+        return max_ws;
     }
     
     // Try to check bindings as fallback (simpler parsing)
-    fp = popen("hyprctl binds 2>/dev/null", "r");
-    if (fp) {
-        char buffer[256];
-        int max_ws = 0;
+    if (pipe(pipefd) == -1) {
+        return 10;
+    }
+    
+    pid = fork();
+    if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return 10;
+    }
+    
+    if (pid == 0) {
+        // Child process
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
         
-        // Look for workspace bindings
-        while (fgets(buffer, sizeof(buffer), fp)) {
-            // Look for lines containing "workspace,"
-            if (strstr(buffer, "workspace,")) {
-                // Try to extract workspace number
-                int ws_num = 0;
-                char *ws_str = strstr(buffer, "workspace,");
+        char *args[] = {"hyprctl", "binds", NULL};
+        execvp("hyprctl", args);
+        _exit(1);
+    }
+    
+    // Parent process
+    close(pipefd[1]);
+    
+    fp = fdopen(pipefd[0], "r");
+    if (!fp) {
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return 10;
+    }
+    
+    max_ws = 0;
+    
+    // Look for workspace bindings
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        // Look for lines containing "workspace,"
+        if (strstr(buffer, "workspace,")) {
+            // Try to extract workspace number
+            int ws_num = 0;
+            char *ws_str = strstr(buffer, "workspace,");
                 if (ws_str && sscanf(ws_str, "workspace, %d", &ws_num) == 1) {
                     if (ws_num > max_ws && ws_num <= 20) {  // Sanity check
                         max_ws = ws_num;
@@ -819,7 +893,8 @@ int detect_max_workspaces() {
                 }
             }
         }
-        pclose(fp);
+        fclose(fp);
+        waitpid(pid, NULL, 0);
         
         if (max_ws > 0) {
             if (config.debug) {
@@ -827,7 +902,6 @@ int detect_max_workspaces() {
             }
             return max_ws;
         }
-    }
     
     // Default to 10 workspaces if we can't detect
     if (config.debug) {
@@ -1041,6 +1115,60 @@ void print_version() {
     printf("Smooth parallax wallpaper animations for Hyprland\n");
 }
 
+// Helper: Check if path is in a sensitive directory
+static int is_sensitive_path(const char *resolved_path) {
+    const char *sensitive_dirs[] = {
+        "/etc", "/sys", "/proc", "/dev",
+        "/boot", "/root", NULL
+    };
+    
+    for (int i = 0; sensitive_dirs[i]; i++) {
+        size_t dir_len = strlen(sensitive_dirs[i]);
+        if (strncmp(resolved_path, sensitive_dirs[i], dir_len) == 0 &&
+            (resolved_path[dir_len] == '/' || resolved_path[dir_len] == '\0')) {
+            fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n", 
+                    sensitive_dirs[i]);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Helper: Resolve path for non-existent files
+static char *resolve_nonexistent_path(const char *path) {
+    char *path_copy = strdup(path);
+    if (!path_copy) {
+        fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
+        return NULL;
+    }
+    
+    char *dir = dirname(path_copy);
+    char *resolved_dir = realpath(dir, NULL);
+    
+    if (!resolved_dir) {
+        fprintf(stderr, "Error: Path validation failed - parent directory '%s' does not exist\n", dir);
+        free(path_copy);
+        return NULL;
+    }
+    
+    // Construct the resolved path
+    char *base = basename((char *)path);
+    size_t path_len = strlen(resolved_dir) + strlen(base) + 2;
+    char *resolved_path = malloc(path_len);
+    if (!resolved_path) {
+        fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
+        free(resolved_dir);
+        free(path_copy);
+        return NULL;
+    }
+    
+    snprintf(resolved_path, path_len, "%s/%s", resolved_dir, base);
+    free(resolved_dir);
+    free(path_copy);
+    
+    return resolved_path;
+}
+
 // Validate path to prevent directory traversal
 int validate_path(const char *path) {
     if (!path) {
@@ -1048,60 +1176,22 @@ int validate_path(const char *path) {
         return 0;
     }
     
-    // Use realpath with dynamic allocation for safety
+    // Try to resolve the path directly
     char *resolved_path = realpath(path, NULL);
+    
+    // If file doesn't exist, resolve parent directory
     if (!resolved_path) {
-        // If the file doesn't exist yet, check the parent directory
-        char *path_copy = strdup(path);
-        if (!path_copy) {
-            fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
-            return 0;
-        }
-        
-        char *dir = dirname(path_copy);
-        char *resolved_dir = realpath(dir, NULL);
-        
-        if (!resolved_dir) {
-            fprintf(stderr, "Error: Path validation failed - parent directory '%s' does not exist\n", dir);
-            free(path_copy);
-            return 0;  // Parent directory doesn't exist
-        }
-        
-        // Construct the resolved path
-        char *base = basename((char *)path);
-        size_t path_len = strlen(resolved_dir) + strlen(base) + 2;
-        resolved_path = malloc(path_len);
+        resolved_path = resolve_nonexistent_path(path);
         if (!resolved_path) {
-            fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
-            free(resolved_dir);
-            free(path_copy);
             return 0;
         }
-        snprintf(resolved_path, path_len, "%s/%s", resolved_dir, base);
-        free(resolved_dir);
-        free(path_copy);
     }
     
-    // Check for access to sensitive directories
-    const char *sensitive_dirs[] = {
-        "/etc", "/sys", "/proc", "/dev",
-        "/boot", "/root", NULL
-    };
+    // Check for sensitive directories
+    int is_valid = !is_sensitive_path(resolved_path);
     
-    int result = 1;  // Assume valid unless proven otherwise
-    for (int i = 0; sensitive_dirs[i]; i++) {
-        if (strncmp(resolved_path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0 &&
-            (resolved_path[strlen(sensitive_dirs[i])] == '/' || 
-             resolved_path[strlen(sensitive_dirs[i])] == '\0')) {
-            fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n", 
-                    sensitive_dirs[i]);
-            result = 0;
-            break;
-        }
-    }
-    
-    free(resolved_path);  // Free the dynamically allocated path
-    return result;
+    free(resolved_path);
+    return is_valid;
 }
 
 // Parse config file
