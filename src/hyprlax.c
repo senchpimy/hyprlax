@@ -84,6 +84,7 @@ struct config {
     int debug;
     int multi_layer_mode;  // Whether we're using multiple layers
     int max_workspaces;    // Maximum number of workspaces (detected from Hyprland)
+    char *config_file_path;  // Path to the config file for resolving relative paths
 } config = {
     .shift_per_workspace = 200.0f,  // More dramatic shift between workspaces
     .animation_duration = 1.0f,  // Longer duration - user can "feel" it settling
@@ -94,7 +95,8 @@ struct config {
     .vsync = 1,
     .debug = 0,
     .multi_layer_mode = 0,
-    .max_workspaces = 10  // Default to 10, will be detected from Hyprland
+    .max_workspaces = 10,  // Default to 10, will be detected from Hyprland
+    .config_file_path = NULL
 };
 
 // Global state
@@ -1194,12 +1196,69 @@ int validate_path(const char *path) {
     return is_valid;
 }
 
+// Resolve path relative to config file directory
+char* resolve_config_relative_path(const char *path) {
+    if (!path) return NULL;
+    
+    // If path is already absolute, return a copy
+    if (path[0] == '/') {
+        return strdup(path);
+    }
+    
+    // If no config file path stored, treat as relative to current directory
+    if (!config.config_file_path) {
+        return strdup(path);
+    }
+    
+    // Get directory of config file
+    char *config_dir = strdup(config.config_file_path);
+    if (!config_dir) return NULL;
+    
+    char *last_slash = strrchr(config_dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';  // Terminate at last slash to get directory
+    } else {
+        // Config file is in current directory
+        free(config_dir);
+        return strdup(path);
+    }
+    
+    // Build full path
+    size_t dir_len = strlen(config_dir);
+    size_t path_len = strlen(path);
+    char *full_path = malloc(dir_len + path_len + 2);
+    if (!full_path) {
+        free(config_dir);
+        return NULL;
+    }
+    
+    snprintf(full_path, dir_len + path_len + 2, "%s/%s", config_dir, path);
+    free(config_dir);
+    
+    return full_path;
+}
+
 // Parse config file
 int parse_config_file(const char *filename) {
     // Validate the config file path
     if (!validate_path(filename)) {
         fprintf(stderr, "Error: Invalid config file path: %s\n", filename);
         return -1;
+    }
+    
+    // Store the config file path (resolve to absolute path)
+    char *resolved_config_path = realpath(filename, NULL);
+    if (resolved_config_path) {
+        if (config.config_file_path) {
+            free(config.config_file_path);
+        }
+        config.config_file_path = resolved_config_path;
+    } else {
+        // If realpath fails, store the original path
+        if (config.config_file_path) {
+            free(config.config_file_path);
+        }
+        config.config_file_path = strdup(filename);
     }
     
     FILE *file = fopen(filename, "r");
@@ -1251,9 +1310,18 @@ int parse_config_file(const char *filename) {
                 continue;
             }
             
-            // Validate image path
-            if (!validate_path(image)) {
-                fprintf(stderr, "Error: Invalid image path at line %d: %s\n", line_num, image);
+            // Resolve path relative to config file if needed
+            char *resolved_image_path = resolve_config_relative_path(image);
+            if (!resolved_image_path) {
+                fprintf(stderr, "Error: Failed to resolve image path at line %d: %s\n", line_num, image);
+                fclose(file);
+                return -1;
+            }
+            
+            // Validate resolved image path
+            if (!validate_path(resolved_image_path)) {
+                fprintf(stderr, "Error: Invalid image path at line %d: %s\n", line_num, resolved_image_path);
+                free(resolved_image_path);
                 fclose(file);
                 return -1;
             }
@@ -1305,12 +1373,8 @@ int parse_config_file(const char *filename) {
             
             if (state.layer_count < state.max_layers) {
                 struct layer *layer = &state.layers[state.layer_count];
-                layer->image_path = strdup(image);
-                if (!layer->image_path) {
-                    fprintf(stderr, "Error: Failed to allocate memory for image path at line %d\n", line_num);
-                    fclose(file);
-                    return -1;
-                }
+                layer->image_path = resolved_image_path;  // Use the resolved path directly
+                // Note: resolved_image_path is now owned by the layer, don't free it
                 layer->shift_multiplier = shift;
                 layer->opacity = opacity;
                 layer->blur_amount = blur;
@@ -1733,6 +1797,12 @@ int main(int argc, char *argv[]) {
     if (state.ipc_fd >= 0) close(state.ipc_fd);
     
     wl_display_disconnect(state.display);
+    
+    // Clean up config file path
+    if (config.config_file_path) {
+        free(config.config_file_path);
+        config.config_file_path = NULL;
+    }
     
     return 0;
 }
