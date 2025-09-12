@@ -177,8 +177,8 @@ def create_mountains_example():
                                         scale=1.2, alpha=230, seed=3)
     save_layer(mid_mountains, os.path.join(scene_dir, "layer3_mid_mountains.png"))
     
-    # Layer 4: Trees
-    trees = draw_trees_layer(80, int(HEIGHT * 0.82), 30, alpha=255, seed=4)
+    # Layer 4: Trees (positioned lower, at base of foreground)
+    trees = draw_trees_layer(80, int(HEIGHT * 0.92), 30, alpha=255, seed=4)
     save_layer(trees, os.path.join(scene_dir, "layer4_trees.png"))
     
     # Layer 5: Foreground hill
