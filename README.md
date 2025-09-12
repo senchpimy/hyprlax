@@ -12,187 +12,103 @@ Smooth parallax wallpaper animations for Hyprland.
 
 - 🎬 **Buttery smooth animations** - GPU-accelerated rendering at up to 144 FPS
 - 🖼️ **Parallax effect** - Wallpaper shifts as you switch workspaces
+- 🌌 **Multi-layer parallax** - Create depth with multiple layers moving at different speeds
+- 🔍 **Depth-of-field blur** - Realistic depth perception with per-layer blur effects
 - ⚡ **Lightweight** - Native Wayland client using layer-shell protocol
-- 🎨 **Customizable** - Multiple easing functions and animation parameters
+- 🎨 **Customizable** - Per-layer easing functions, delays, and animation parameters
 - 🔄 **Seamless transitions** - Interrupts and chains animations smoothly
+- 🎯 **Phase 3 features** - Advanced per-layer controls for professional effects
 
 ## Installation
 
-### Quick Install (Recommended)
+### Quick Install
 
 ```bash
-git clone https://github.com/yourusername/hyprlax.git
+git clone https://github.com/sandwichfarm/hyprlax.git
 cd hyprlax
 ./install.sh        # Install for current user
-# OR
-./install.sh -s     # Install system-wide (requires sudo)
 ```
 
-### From Release
+### Other Methods
 
-Download the latest binary from the [releases page](https://github.com/yourusername/hyprlax/releases):
+- **System-wide**: `./install.sh -s` (requires sudo)
+- **From release**: Download from [releases page](https://github.com/sandwichfarm/hyprlax/releases)
+- **Manual build**: See [installation guide](docs/installation.md)
 
-```bash
-wget https://github.com/yourusername/hyprlax/releases/latest/download/hyprlax-x86_64
-chmod +x hyprlax-x86_64
-sudo mv hyprlax-x86_64 /usr/local/bin/hyprlax
-```
+### Dependencies
 
-### Manual Build
+- Wayland, wayland-protocols, Mesa (EGL/GLES)
+- Full dependency list: [installation guide](docs/installation.md#dependencies)
 
-#### Dependencies
-
-```bash
-# Arch Linux
-sudo pacman -S base-devel wayland wayland-protocols mesa
-
-# Ubuntu/Debian
-sudo apt install build-essential libwayland-dev wayland-protocols libegl1-mesa-dev libgles2-mesa-dev pkg-config
-
-# Fedora
-sudo dnf install gcc make wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGLES-devel pkg-config
-```
-
-#### Build & Install
-
-```bash
-git clone https://github.com/yourusername/hyprlax.git
-cd hyprlax
-make
-make install-user   # Install to ~/.local/bin (no sudo)
-# OR
-sudo make install   # Install to /usr/local/bin
-```
-
-## Usage
+## Quick Start
 
 ### Basic Usage
 
 ```bash
-hyprlax /path/to/your/wallpaper.jpg
+# Single wallpaper
+hyprlax ~/Pictures/wallpaper.jpg
+
+# Multi-layer parallax
+hyprlax --layer background.jpg:0.3:1.0:expo:0:1.0:3.0 \
+        --layer foreground.png:1.0:0.7
+
+# Using config file
+hyprlax --config ~/.config/hyprlax/parallax.conf
 ```
 
-### With Custom Settings
+### Key Options
 
-```bash
-# Slower, more dramatic animation
-hyprlax -d 1.5 -s 250 /path/to/wallpaper.jpg
+- `-s, --shift` - Pixels to shift per workspace (default: 200)
+- `-d, --duration` - Animation duration in seconds (default: 1.0)
+- `-e, --easing` - Animation curve: linear, sine, expo, elastic, etc.
+- `--layer` - Add layer: `image:shift:opacity[:easing[:delay[:duration[:blur]]]]`
+- `--config` - Load from config file
 
-# Bouncy effect
-hyprlax -e elastic -d 0.8 /path/to/wallpaper.jpg
+**Full documentation:** [Configuration Guide](docs/configuration.md)
 
-# Fast and snappy
-hyprlax -e expo -d 0.3 -s 150 /path/to/wallpaper.jpg
-```
-
-### Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-s, --shift <pixels>` | Pixels to shift per workspace | 200 |
-| `-d, --duration <seconds>` | Animation duration | 1.0 |
-| `--delay <seconds>` | Delay before animation starts | 0 |
-| `-e, --easing <type>` | Easing function (see below) | expo |
-| `-f, --scale <factor>` | Image scale factor | auto |
-| `--fps <rate>` | Target frame rate | 144 |
-| `--debug` | Enable debug output | off |
-
-#### Easing Functions
-
-- `linear` - Constant speed
-- `quad`, `cubic`, `quart`, `quint` - Power curves (2-5)
-- `sine` - Smooth sine wave
-- `expo` - Exponential (default)
-- `circ` - Circular
-- `back` - Slight overshoot
-- `elastic` - Bouncy
-- `snap` - Custom snappy curve
 
 ## Hyprland Configuration
 
-### Basic Setup
-
-Add to your `~/.config/hypr/hyprland.conf`:
+Add to `~/.config/hypr/hyprland.conf`:
 
 ```bash
-# Kill any existing wallpaper daemons to avoid conflicts
+# Kill existing wallpaper daemons
 exec-once = pkill swww-daemon; pkill hyprpaper; pkill hyprlax
 
-# Start hyprlax with your wallpaper
-exec-once = hyprlax ~/Pictures/your-wallpaper.jpg
+# Start hyprlax
+exec-once = hyprlax ~/Pictures/wallpaper.jpg
+
+# Or with multi-layer config
+exec-once = hyprlax --config ~/.config/hyprlax/parallax.conf
 ```
 
-### Advanced Configuration
+**Full setup guide:** [Configuration Guide](docs/configuration.md)
 
-```bash
-# With custom animation settings
-exec-once = hyprlax -d 1.0 -s 200 -e expo ~/Pictures/wallpaper.jpg
+## Documentation
 
-# Different settings for different moods:
-# Smooth and relaxed
-exec-once = hyprlax -d 1.5 -s 250 -e sine ~/Pictures/wallpaper.jpg
+### 📚 Guides
+- [Installation](docs/installation.md) - Detailed installation instructions
+- [Configuration](docs/configuration.md) - All configuration options
+- [Multi-Layer Parallax](docs/multi-layer.md) - Creating depth with layers
+- [Animation](docs/animation.md) - Easing functions and timing
+- [Examples](docs/examples.md) - Ready-to-use configurations
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+- [Development](docs/development.md) - Building and contributing
 
-# Fast and snappy
-exec-once = hyprlax -d 0.3 -s 150 -e quint ~/Pictures/wallpaper.jpg
+## Changelog
 
-# Bouncy and playful
-exec-once = hyprlax -d 0.8 -e elastic ~/Pictures/wallpaper.jpg
-```
+### v1.2.0 (Latest)
+- 🌌 **Multi-layer parallax support** - Create depth with multiple independent layers
+- 🔍 **Blur effects** - Per-layer blur for realistic depth-of-field
+- 🎨 **Per-layer animation controls** - Individual easing, delays, and durations
+- 📝 **Configuration file support** - Load complex setups from config files
+- ⚡ **Phase 3 optimizations** - Improved rendering pipeline for multiple layers
 
-### Managing hyprlax
-
-```bash
-# Restart hyprlax (useful for changing wallpapers)
-pkill hyprlax && hyprlax ~/Pictures/new-wallpaper.jpg
-
-# Stop hyprlax
-pkill hyprlax
-
-# Check if hyprlax is running
-pgrep -x hyprlax
-```
-
-### Integration with Wallpaper Switchers
-
-Create a script `~/.config/hypr/scripts/wallpaper.sh`:
-
-```bash
-#!/bin/bash
-# Script to switch wallpapers with hyprlax
-
-WALLPAPER="$1"
-if [ -z "$WALLPAPER" ]; then
-    WALLPAPER=$(find ~/Pictures/Wallpapers -type f \( -name "*.jpg" -o -name "*.png" \) | shuf -n 1)
-fi
-
-pkill hyprlax
-hyprlax "$WALLPAPER" &
-```
-
-Then bind it in Hyprland:
-```bash
-bind = $mainMod, W, exec, ~/.config/hypr/scripts/wallpaper.sh
-```
-
-## Tips
-
-- **For best results**: Use high-resolution images (at least 2x your screen width)
-- **Performance**: Lower `--fps` if you experience high GPU usage
-- **Multiple monitors**: Currently supports single monitor setups (multi-monitor support coming soon)
-
-## Troubleshooting
-
-### Black screen
-- Ensure your image path is correct
-- Check that the image is a supported format (JPEG, PNG)
-
-### Animation stuttering
-- Try disabling vsync: `hyprlax --vsync 0 /path/to/image.jpg`
-- Lower the target FPS: `hyprlax --fps 60 /path/to/image.jpg`
-
-### Not starting
-- Check if another wallpaper daemon is running: `pkill swww-daemon hyprpaper`
-- Ensure Hyprland is running
+### v1.1.0
+- 🎬 Initial release with smooth parallax animations
+- ⚡ GPU-accelerated rendering
+- 🎨 Multiple easing functions
+- 🔄 Seamless animation interruption
 
 ## License
 
@@ -201,3 +117,10 @@ MIT
 ## Contributing
 
 Pull requests are welcome! Please read [RELEASE.md](RELEASE.md) for the release process.
+
+## Roadmap
+
+- [ ] Dynamic layer loading/unloading ([#1](https://github.com/sandwichfarm/hyprlax/issues/1))
+- [ ] Multi-monitor support
+- [ ] Video wallpaper support
+- [ ] Integration with wallpaper managers
