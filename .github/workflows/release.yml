@@ -40,16 +40,25 @@ jobs:
     - name: Install cross-compilation tools (ARM64)
       if: matrix.arch == 'aarch64'
       run: |
+        # Enable arm64 architecture first
+        sudo dpkg --add-architecture arm64
+        
+        # Add ARM64 sources
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+        
+        sudo apt-get update
+        
+        # Install cross-compilation tools
         sudo apt-get install -y \
           gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu
+        
+        # Install ARM64 libraries
+        sudo apt-get install -y \
           libwayland-dev:arm64 \
           libegl1-mesa-dev:arm64 \
           libgles2-mesa-dev:arm64
-        
-        # Enable arm64 architecture
-        sudo dpkg --add-architecture arm64
-        sudo apt-get update
 
     - name: Build
       env:
