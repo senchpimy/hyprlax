@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #define HYPRLAX_VERSION "1.2.0"
 #define INITIAL_MAX_LAYERS 8
+#define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
 #define BLUR_KERNEL_SIZE 3.0f    // Size of the blur kernel
 #define BLUR_WEIGHT_FALLOFF 0.2f // Weight falloff for blur samples
 #define BLUR_MIN_THRESHOLD 0.001f // Minimum blur amount to apply effect
@@ -234,41 +235,49 @@ const char *fragment_shader_src =
     "    gl_FragColor = vec4(color.rgb * final_alpha, final_alpha);\n"
     "}\n";
 
-// Blur fragment shader for depth perception
-const char *blur_fragment_shader_src = 
-    "precision highp float;\n"
-    "varying vec2 v_texcoord;\n"
-    "uniform sampler2D u_texture;\n"
-    "uniform float u_opacity;\n"
-    "uniform float u_blur_amount;\n"
-    "uniform vec2 u_resolution;\n"
-    "void main() {\n"
-    "    float blur = u_blur_amount;\n"
-    "    if (blur < 0.001) {\n"  // BLUR_MIN_THRESHOLD
-    "        vec4 color = texture2D(u_texture, v_texcoord);\n"
-    "        gl_FragColor = vec4(color.rgb, color.a * u_opacity);\n"
-    "        return;\n"
-    "    }\n"
-    "    \n"
-    "    // 9-tap box blur for performance\n"
-    "    vec2 texelSize = 1.0 / u_resolution;\n"
-    "    vec4 result = vec4(0.0);\n"
-    "    float total = 0.0;\n"
-    "    \n"
-    "    for (float x = -1.0; x <= 1.0; x += 1.0) {\n"
-    "        for (float y = -1.0; y <= 1.0; y += 1.0) {\n"
-    "            vec2 offset = vec2(x, y) * texelSize * blur * 3.0;\n"  // BLUR_KERNEL_SIZE
-    "            float weight = 1.0 - length(vec2(x, y)) * 0.2;\n"  // BLUR_WEIGHT_FALLOFF
-    "            result += texture2D(u_texture, v_texcoord + offset) * weight;\n"
-    "            total += weight;\n"
-    "        }\n"
-    "    }\n"
-    "    \n"
-    "    result /= total;\n"
-    "    // Premultiply alpha for correct blending\n"
-    "    float final_alpha = result.a * u_opacity;\n"
-    "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
-    "}\n";
+// Build blur fragment shader with constants
+char *build_blur_shader() {
+    char *shader = malloc(2048);
+    if (!shader) return NULL;
+    
+    snprintf(shader, 2048,
+        "precision highp float;\n"
+        "varying vec2 v_texcoord;\n"
+        "uniform sampler2D u_texture;\n"
+        "uniform float u_opacity;\n"
+        "uniform float u_blur_amount;\n"
+        "uniform vec2 u_resolution;\n"
+        "void main() {\n"
+        "    float blur = u_blur_amount;\n"
+        "    if (blur < %.4f) {\n"  // BLUR_MIN_THRESHOLD
+        "        vec4 color = texture2D(u_texture, v_texcoord);\n"
+        "        gl_FragColor = vec4(color.rgb, color.a * u_opacity);\n"
+        "        return;\n"
+        "    }\n"
+        "    \n"
+        "    // 9-tap box blur for performance\n"
+        "    vec2 texelSize = 1.0 / u_resolution;\n"
+        "    vec4 result = vec4(0.0);\n"
+        "    float total = 0.0;\n"
+        "    \n"
+        "    for (float x = -1.0; x <= 1.0; x += 1.0) {\n"
+        "        for (float y = -1.0; y <= 1.0; y += 1.0) {\n"
+        "            vec2 offset = vec2(x, y) * texelSize * blur * %.1f;\n"  // BLUR_KERNEL_SIZE
+        "            float weight = 1.0 - length(vec2(x, y)) * %.1f;\n"  // BLUR_WEIGHT_FALLOFF
+        "            result += texture2D(u_texture, v_texcoord + offset) * weight;\n"
+        "            total += weight;\n"
+        "        }\n"
+        "    }\n"
+        "    \n"
+        "    result /= total;\n"
+        "    // Premultiply alpha for correct blending\n"
+        "    float final_alpha = result.a * u_opacity;\n"
+        "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
+        "}\n",
+        BLUR_MIN_THRESHOLD, BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
+    
+    return shader;
+}
 
 // Helper: Get time in seconds with high precision
 double get_time() {
@@ -316,8 +325,15 @@ int init_gl() {
         return -1;
     }
     
-    // Create blur shader program
-    GLuint blur_fragment = compile_shader(GL_FRAGMENT_SHADER, blur_fragment_shader_src);
+    // Create blur shader program with dynamic constants
+    char *blur_shader_src = build_blur_shader();
+    if (!blur_shader_src) {
+        fprintf(stderr, "Failed to build blur shader\n");
+        return -1;
+    }
+    
+    GLuint blur_fragment = compile_shader(GL_FRAGMENT_SHADER, blur_shader_src);
+    free(blur_shader_src);  // Free the dynamically built shader
     if (!blur_fragment) return -1;
     
     state.blur_shader_program = glCreateProgram();
@@ -945,19 +961,26 @@ void print_version() {
 
 // Validate path to prevent directory traversal
 int validate_path(const char *path) {
-    if (!path) return 0;
+    if (!path) {
+        fprintf(stderr, "Error: Path validation failed - NULL path provided\n");
+        return 0;
+    }
     
     // Use realpath to resolve the canonical path
     char resolved_path[PATH_MAX];
     if (!realpath(path, resolved_path)) {
         // If the file doesn't exist yet, check the parent directory
         char *path_copy = strdup(path);
-        if (!path_copy) return 0;
+        if (!path_copy) {
+            fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
+            return 0;
+        }
         
         char *dir = dirname(path_copy);
         char resolved_dir[PATH_MAX];
         
         if (!realpath(dir, resolved_dir)) {
+            fprintf(stderr, "Error: Path validation failed - parent directory '%s' does not exist\n", dir);
             free(path_copy);
             return 0;  // Parent directory doesn't exist
         }
@@ -978,6 +1001,8 @@ int validate_path(const char *path) {
         if (strncmp(resolved_path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0 &&
             (resolved_path[strlen(sensitive_dirs[i])] == '/' || 
              resolved_path[strlen(sensitive_dirs[i])] == '\0')) {
+            fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n", 
+                    sensitive_dirs[i]);
             return 0;
         }
     }
@@ -999,7 +1024,7 @@ int parse_config_file(const char *filename) {
         return -1;
     }
     
-    char line[512];
+    char line[MAX_CONFIG_LINE_SIZE];
     int line_num = 0;
     
     while (fgets(line, sizeof(line), file)) {
@@ -1007,8 +1032,8 @@ int parse_config_file(const char *filename) {
         
         // Check if line was truncated (no newline found)
         if (!strchr(line, '\n') && !feof(file)) {
-            fprintf(stderr, "Error: Line %d exceeds buffer size of %zu characters\n", 
-                    line_num, sizeof(line) - 1);
+            fprintf(stderr, "Error: Line %d exceeds buffer size of %d characters\n", 
+                    line_num, MAX_CONFIG_LINE_SIZE - 1);
             // Skip rest of the line
             int c;
             while ((c = fgetc(file)) != '\n' && c != EOF);
