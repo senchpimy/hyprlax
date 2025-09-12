@@ -2,6 +2,7 @@
 #define HYPRLAX_VERSION "1.2.0"
 #define INITIAL_MAX_LAYERS 8
 #define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
+#define BLUR_SHADER_MAX_SIZE 2048 // Maximum size for dynamically built shader
 #define BLUR_KERNEL_SIZE 3.0f    // Size of the blur kernel
 #define BLUR_WEIGHT_FALLOFF 0.2f // Weight falloff for blur samples
 #define BLUR_MIN_THRESHOLD 0.001f // Minimum blur amount to apply effect
@@ -237,10 +238,10 @@ const char *fragment_shader_src =
 
 // Build blur fragment shader with constants
 char *build_blur_shader() {
-    char *shader = malloc(2048);
+    char *shader = malloc(BLUR_SHADER_MAX_SIZE);
     if (!shader) return NULL;
     
-    snprintf(shader, 2048,
+    snprintf(shader, BLUR_SHADER_MAX_SIZE,
         "precision highp float;\n"
         "varying vec2 v_texcoord;\n"
         "uniform sampler2D u_texture;\n"
@@ -388,7 +389,7 @@ int load_image(const char *path) {
     int channels;
     unsigned char *data = stbi_load(path, &state.img_width, &state.img_height, &channels, 4);
     if (!data) {
-        fprintf(stderr, "Failed to load image: %s\n", path);
+        fprintf(stderr, "Failed to load image '%s': %s\n", path, stbi_failure_reason());
         return -1;
     }
     
@@ -436,7 +437,7 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     int channels;
     unsigned char *data = stbi_load(path, &layer->width, &layer->height, &channels, 4);
     if (!data) {
-        fprintf(stderr, "Failed to load layer image: %s\n", path);
+        fprintf(stderr, "Failed to load layer image '%s': %s\n", path, stbi_failure_reason());
         return -1;
     }
     
@@ -719,38 +720,74 @@ void render_frame() {
 
 // Get the maximum workspace number from Hyprland
 int detect_max_workspaces() {
-    // Check what workspaces are configured by looking at bindings
-    // Most users configure workspaces 1-10
-    FILE *fp = popen("hyprctl -j binds 2>/dev/null | jq -r '.[] | select(.dispatcher == \"workspace\") | .arg' | sort -n | tail -1", "r");
+    // Try to get workspace info directly from hyprctl without jq
+    // This is safer and doesn't require external JSON parser
+    FILE *fp = popen("hyprctl workspaces 2>/dev/null", "r");
     if (fp) {
+        char buffer[256];
         int max_ws = 0;
-        if (fscanf(fp, "%d", &max_ws) == 1 && max_ws > 0) {
-            pclose(fp);
+        
+        // Parse the output looking for workspace IDs
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            // Look for lines like "workspace ID X"
+            char *id_str = strstr(buffer, "workspace ID ");
+            if (id_str) {
+                int ws_id = 0;
+                if (sscanf(id_str, "workspace ID %d", &ws_id) == 1) {
+                    if (ws_id > max_ws) {
+                        max_ws = ws_id;
+                    }
+                }
+            }
+        }
+        pclose(fp);
+        
+        if (max_ws > 0) {
+            // If we only see workspaces up to 5, assume 10 (common default)
+            if (max_ws <= 5) {
+                return 10;
+            }
+            if (config.debug) {
+                printf("Detected max workspace from existing workspaces: %d\n", max_ws);
+            }
+            return max_ws;
+        }
+    }
+    
+    // Try to check bindings as fallback (simpler parsing)
+    fp = popen("hyprctl binds 2>/dev/null", "r");
+    if (fp) {
+        char buffer[256];
+        int max_ws = 0;
+        
+        // Look for workspace bindings
+        while (fgets(buffer, sizeof(buffer), fp)) {
+            // Look for lines containing "workspace,"
+            if (strstr(buffer, "workspace,")) {
+                // Try to extract workspace number
+                int ws_num = 0;
+                char *ws_str = strstr(buffer, "workspace,");
+                if (ws_str && sscanf(ws_str, "workspace, %d", &ws_num) == 1) {
+                    if (ws_num > max_ws && ws_num <= 20) {  // Sanity check
+                        max_ws = ws_num;
+                    }
+                }
+            }
+        }
+        pclose(fp);
+        
+        if (max_ws > 0) {
             if (config.debug) {
                 printf("Detected max workspace from bindings: %d\n", max_ws);
             }
             return max_ws;
         }
-        pclose(fp);
-    }
-    
-    // Alternative: check existing workspaces
-    fp = popen("hyprctl -j workspaces 2>/dev/null | jq '[.[].id] | max' 2>/dev/null", "r");
-    if (fp) {
-        int max_ws = 0;
-        if (fscanf(fp, "%d", &max_ws) == 1 && max_ws > 0) {
-            pclose(fp);
-            // If we only see workspaces up to 5 but nothing higher,
-            // assume the user has 10 configured (common default)
-            if (max_ws <= 5) {
-                return 10;
-            }
-            return max_ws;
-        }
-        pclose(fp);
     }
     
     // Default to 10 workspaces if we can't detect
+    if (config.debug) {
+        printf("Could not detect max workspaces, defaulting to 10\n");
+    }
     return 10;
 }
 
@@ -1027,7 +1064,7 @@ int parse_config_file(const char *filename) {
     char line[MAX_CONFIG_LINE_SIZE];
     int line_num = 0;
     
-    while (fgets(line, sizeof(line), file)) {
+    while (fgets(line, MAX_CONFIG_LINE_SIZE, file)) {
         line_num++;
         
         // Check if line was truncated (no newline found)
@@ -1421,7 +1458,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < state.layer_count; i++) {
             struct layer *layer = &state.layers[i];
             if (load_layer(layer, layer->image_path, layer->shift_multiplier, layer->opacity) < 0) {
-                fprintf(stderr, "Failed to load layer %d: %s\n", i, layer->image_path);
+                fprintf(stderr, "Failed to load layer %d '%s': %s\n", i, layer->image_path, stbi_failure_reason());
                 return 1;
             }
         }
