@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #define HYPRLAX_VERSION "1.2.0"
-#define MAX_LAYERS 8
+#define INITIAL_MAX_LAYERS 8
+#define BLUR_KERNEL_SIZE 3.0f    // Size of the blur kernel
+#define BLUR_WEIGHT_FALLOFF 0.2f // Weight falloff for blur samples
+#define BLUR_MIN_THRESHOLD 0.001f // Minimum blur amount to apply effect
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -234,7 +237,7 @@ const char *blur_fragment_shader_src =
     "uniform vec2 u_resolution;\n"
     "void main() {\n"
     "    float blur = u_blur_amount;\n"
-    "    if (blur < 0.001) {\n"
+    "    if (blur < 0.001) {\n"  // BLUR_MIN_THRESHOLD
     "        vec4 color = texture2D(u_texture, v_texcoord);\n"
     "        gl_FragColor = vec4(color.rgb, color.a * u_opacity);\n"
     "        return;\n"
@@ -247,8 +250,8 @@ const char *blur_fragment_shader_src =
     "    \n"
     "    for (float x = -1.0; x <= 1.0; x += 1.0) {\n"
     "        for (float y = -1.0; y <= 1.0; y += 1.0) {\n"
-    "            vec2 offset = vec2(x, y) * texelSize * blur * 3.0;\n"
-    "            float weight = 1.0 - length(vec2(x, y)) * 0.2;\n"
+    "            vec2 offset = vec2(x, y) * texelSize * blur * 3.0;\n"  // BLUR_KERNEL_SIZE
+    "            float weight = 1.0 - length(vec2(x, y)) * 0.2;\n"  // BLUR_WEIGHT_FALLOFF
     "            result += texture2D(u_texture, v_texcoord + offset) * weight;\n"
     "            total += weight;\n"
     "        }\n"
@@ -426,6 +429,11 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     layer->shift_multiplier = shift_multiplier;
     layer->opacity = opacity;
     layer->image_path = strdup(path);
+    if (!layer->image_path) {
+        fprintf(stderr, "Error: Failed to allocate memory for image path\n");
+        stbi_image_free(data);
+        return -1;
+    }
     layer->current_offset = 0.0f;
     layer->target_offset = 0.0f;
     layer->start_offset = 0.0f;
@@ -450,9 +458,18 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
 
 // Add a layer to the state
 int add_layer(const char *path, float shift_multiplier, float opacity) {
+    // Grow the layer array if needed
     if (state.layer_count >= state.max_layers) {
-        fprintf(stderr, "Maximum number of layers (%d) reached\n", state.max_layers);
-        return -1;
+        int new_max = state.max_layers * 2;
+        struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
+        if (!new_layers) {
+            fprintf(stderr, "Failed to allocate memory for %d layers\n", new_max);
+            return -1;
+        }
+        // Zero out the new memory
+        memset(new_layers + state.max_layers, 0, (new_max - state.max_layers) * sizeof(struct layer));
+        state.layers = new_layers;
+        state.max_layers = new_max;
     }
     
     struct layer *layer = &state.layers[state.layer_count];
@@ -867,8 +884,38 @@ void print_version() {
     printf("Smooth parallax wallpaper animations for Hyprland\n");
 }
 
+// Validate path to prevent directory traversal
+int validate_path(const char *path) {
+    if (!path) return 0;
+    
+    // Check for directory traversal patterns
+    if (strstr(path, "../") || strstr(path, "..\\")) {
+        return 0;
+    }
+    
+    // Check for absolute paths to sensitive directories
+    const char *sensitive_dirs[] = {
+        "/etc/", "/sys/", "/proc/", "/dev/",
+        "/boot/", "/root/", NULL
+    };
+    
+    for (int i = 0; sensitive_dirs[i]; i++) {
+        if (strncmp(path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0) {
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
 // Parse config file
 int parse_config_file(const char *filename) {
+    // Validate the config file path
+    if (!validate_path(filename)) {
+        fprintf(stderr, "Error: Invalid config file path: %s\n", filename);
+        return -1;
+    }
+    
     FILE *file = fopen(filename, "r");
     if (!file) {
         fprintf(stderr, "Error: Cannot open config file: %s\n", filename);
@@ -880,6 +927,16 @@ int parse_config_file(const char *filename) {
     
     while (fgets(line, sizeof(line), file)) {
         line_num++;
+        
+        // Check if line was truncated (no newline found)
+        if (!strchr(line, '\n') && !feof(file)) {
+            fprintf(stderr, "Error: Line %d exceeds buffer size of %zu characters\n", 
+                    line_num, sizeof(line) - 1);
+            // Skip rest of the line
+            int c;
+            while ((c = fgetc(file)) != '\n' && c != EOF);
+            continue;
+        }
         
         // Skip comments and empty lines
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
@@ -903,21 +960,52 @@ int parse_config_file(const char *filename) {
                 continue;
             }
             
+            // Validate image path
+            if (!validate_path(image)) {
+                fprintf(stderr, "Error: Invalid image path at line %d: %s\n", line_num, image);
+                fclose(file);
+                return -1;
+            }
+            
             float shift = shift_str ? atof(shift_str) : 1.0f;
             float opacity = opacity_str ? atof(opacity_str) : 1.0f;
             float blur = blur_str ? atof(blur_str) : 0.0f;
             
             // Initialize layer array if needed
             if (!state.layers) {
-                state.max_layers = MAX_LAYERS;
+                state.max_layers = INITIAL_MAX_LAYERS;
                 state.layers = calloc(state.max_layers, sizeof(struct layer));
+                if (!state.layers) {
+                    fprintf(stderr, "Error: Failed to allocate memory for layers at line %d\n", line_num);
+                    fclose(file);
+                    return -1;
+                }
                 state.layer_count = 0;
                 config.multi_layer_mode = 1;
+            }
+            
+            // Grow the layer array if needed
+            if (state.layer_count >= state.max_layers) {
+                int new_max = state.max_layers * 2;
+                struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
+                if (!new_layers) {
+                    fprintf(stderr, "Failed to allocate memory for %d layers at line %d\n", new_max, line_num);
+                    fclose(file);
+                    return -1;
+                }
+                memset(new_layers + state.max_layers, 0, (new_max - state.max_layers) * sizeof(struct layer));
+                state.layers = new_layers;
+                state.max_layers = new_max;
             }
             
             if (state.layer_count < state.max_layers) {
                 struct layer *layer = &state.layers[state.layer_count];
                 layer->image_path = strdup(image);
+                if (!layer->image_path) {
+                    fprintf(stderr, "Error: Failed to allocate memory for image path at line %d\n", line_num);
+                    fclose(file);
+                    return -1;
+                }
                 layer->shift_multiplier = shift;
                 layer->opacity = opacity;
                 layer->blur_amount = blur;
@@ -1011,6 +1099,10 @@ int main(int argc, char *argv[]) {
                 } else if (strcmp(long_options[option_index].name, "layer") == 0) {
                     // Parse extended layer specification: image:shift:opacity[:easing[:delay[:duration[:blur]]]]
                     char *spec = strdup(optarg);
+                    if (!spec) {
+                        fprintf(stderr, "Error: Failed to allocate memory for layer specification\n");
+                        return 1;
+                    }
                     char *image = strtok(spec, ":");
                     char *shift_str = strtok(NULL, ":");
                     char *opacity_str = strtok(NULL, ":");
@@ -1030,16 +1122,40 @@ int main(int argc, char *argv[]) {
                     
                     // Initialize layer array if needed
                     if (!state.layers) {
-                        state.max_layers = MAX_LAYERS;
+                        state.max_layers = INITIAL_MAX_LAYERS;
                         state.layers = calloc(state.max_layers, sizeof(struct layer));
+                        if (!state.layers) {
+                            fprintf(stderr, "Error: Failed to allocate memory for layers\n");
+                            free(spec);
+                            return 1;
+                        }
                         state.layer_count = 0;
                         config.multi_layer_mode = 1;
+                    }
+                    
+                    // Grow the layer array if needed
+                    if (state.layer_count >= state.max_layers) {
+                        int new_max = state.max_layers * 2;
+                        struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
+                        if (!new_layers) {
+                            fprintf(stderr, "Error: Failed to allocate memory for %d layers\n", new_max);
+                            free(spec);
+                            return 1;
+                        }
+                        memset(new_layers + state.max_layers, 0, (new_max - state.max_layers) * sizeof(struct layer));
+                        state.layers = new_layers;
+                        state.max_layers = new_max;
                     }
                     
                     // Store layer info for later loading
                     if (state.layer_count < state.max_layers) {
                         struct layer *layer = &state.layers[state.layer_count];
                         layer->image_path = strdup(image);
+                        if (!layer->image_path) {
+                            fprintf(stderr, "Error: Failed to allocate memory for layer image path\n");
+                            free(spec);
+                            return 1;
+                        }
                         layer->shift_multiplier = shift;
                         layer->opacity = opacity;
                         

@@ -13,15 +13,33 @@ from PIL import Image, ImageDraw, ImageFilter
 # Image dimensions
 WIDTH, HEIGHT = 1920, 1080
 
+def validate_path(path):
+    """Validate path to prevent directory traversal."""
+    # Get absolute path and ensure it's within the current directory
+    abs_path = os.path.abspath(path)
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    
+    # Ensure the path is within the examples directory
+    if not abs_path.startswith(base_dir):
+        raise ValueError(f"Invalid path: {path} (outside of examples directory)")
+    
+    # Check for directory traversal patterns
+    if ".." in path:
+        raise ValueError(f"Invalid path: {path} (contains directory traversal)")
+    
+    return abs_path
+
 def ensure_dir(path):
     """Create directory if it doesn't exist."""
-    os.makedirs(path, exist_ok=True)
-    return path
+    validated_path = validate_path(path)
+    os.makedirs(validated_path, exist_ok=True)
+    return validated_path
 
 def save_layer(img, path):
     """Save image as PNG with transparency."""
-    img.save(path, format="PNG")
-    print(f"  Created: {os.path.basename(path)}")
+    validated_path = validate_path(path)
+    img.save(validated_path, format="PNG")
+    print(f"  Created: {os.path.basename(validated_path)}")
 
 def gradient_bg(w, h, top_color, bottom_color):
     """Create a gradient background."""
