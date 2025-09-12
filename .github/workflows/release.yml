@@ -46,6 +46,8 @@ jobs:
           gcc-aarch64-linux-gnu \
           g++-aarch64-linux-gnu \
           libwayland-dev \
+          libegl1-mesa-dev \
+          libgles2-mesa-dev \
           wayland-protocols \
           pkg-config \
           make
