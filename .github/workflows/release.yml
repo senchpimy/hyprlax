@@ -16,9 +16,6 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             cc: gcc
-          - os: ubuntu-latest
-            arch: aarch64
-            cc: aarch64-linux-gnu-gcc
 
     runs-on: ${{ matrix.os }}
     
@@ -26,8 +23,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install dependencies (x86_64)
-      if: matrix.arch == 'x86_64'
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -38,46 +34,12 @@ jobs:
           pkg-config \
           make
 
-    - name: Setup ARM64 cross-compilation
-      if: matrix.arch == 'aarch64'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
-          wayland-protocols \
-          libwayland-bin \
-          pkg-config \
-          make
-        
-        # We'll compile without system libraries and let users install deps
-
-    - name: Build (x86_64)
-      if: matrix.arch == 'x86_64'
+    - name: Build
       env:
         CC: ${{ matrix.cc }}
       run: |
         make clean
-        make ARCH=${{ matrix.arch }}
-    
-    - name: Build (ARM64 - static)
-      if: matrix.arch == 'aarch64'
-      env:
-        CC: ${{ matrix.cc }}
-      run: |
-        # Generate protocol files first
-        mkdir -p protocols
-        wayland-scanner private-code < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > protocols/xdg-shell-protocol.c
-        wayland-scanner client-header < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > protocols/xdg-shell-client-protocol.h
-        wayland-scanner private-code < protocols/wlr-layer-shell-unstable-v1.xml > protocols/wlr-layer-shell-protocol.c
-        wayland-scanner client-header < protocols/wlr-layer-shell-unstable-v1.xml > protocols/wlr-layer-shell-client-protocol.h
-        
-        # Compile with static linking where possible
-        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c src/hyprlax.c -o src/hyprlax.o
-        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c protocols/xdg-shell-protocol.c -o protocols/xdg-shell-protocol.o
-        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c protocols/wlr-layer-shell-protocol.c -o protocols/wlr-layer-shell-protocol.o
-        aarch64-linux-gnu-gcc -flto -static src/hyprlax.o protocols/xdg-shell-protocol.o protocols/wlr-layer-shell-protocol.o -lm -o hyprlax || \
-        aarch64-linux-gnu-gcc -flto src/hyprlax.o protocols/xdg-shell-protocol.o protocols/wlr-layer-shell-protocol.o -lm -o hyprlax
+        make
         
     - name: Create binary name
       id: binary
@@ -149,16 +111,16 @@ jobs:
           
           ### Installation
           
-          Download the appropriate binary for your architecture:
-          - `hyprlax-x86_64` - For standard x86_64 systems
-          - `hyprlax-aarch64` - For ARM64 systems
+          Download the binary:
+          - `hyprlax-x86_64` - For x86_64 systems
           
           ```bash
-          # Example for x86_64
           wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/hyprlax-x86_64
           chmod +x hyprlax-x86_64
           sudo mv hyprlax-x86_64 /usr/local/bin/hyprlax
           ```
+          
+          For ARM64 and other architectures, please build from source.
           
           ### Changes
           
@@ -170,7 +132,6 @@ jobs:
           
         files: |
           hyprlax-x86_64
-          hyprlax-aarch64
           SHA256SUMS
         draft: false
         prerelease: ${{ contains(steps.version.outputs.version, '-') }}
