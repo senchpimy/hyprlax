@@ -79,6 +79,7 @@ struct config {
     int vsync;
     int debug;
     int multi_layer_mode;  // Whether we're using multiple layers
+    int max_workspaces;    // Maximum number of workspaces (detected from Hyprland)
 } config = {
     .shift_per_workspace = 200.0f,  // More dramatic shift between workspaces
     .animation_duration = 1.0f,  // Longer duration - user can "feel" it settling
@@ -88,7 +89,8 @@ struct config {
     .target_fps = 144,
     .vsync = 1,
     .debug = 0,
-    .multi_layer_mode = 0
+    .multi_layer_mode = 0,
+    .max_workspaces = 10  // Default to 10, will be detected from Hyprland
 };
 
 // Global state
@@ -141,6 +143,7 @@ struct {
     double animation_start;
     int animating;
     int current_workspace;
+    int previous_workspace;  // Track previous workspace to detect actual changes
     
     // Performance tracking
     double last_frame_time;
@@ -698,6 +701,43 @@ void render_frame() {
     state.last_frame_time = current_time;
 }
 
+// Get the maximum workspace number from Hyprland
+int detect_max_workspaces() {
+    // Check what workspaces are configured by looking at bindings
+    // Most users configure workspaces 1-10
+    FILE *fp = popen("hyprctl -j binds 2>/dev/null | jq -r '.[] | select(.dispatcher == \"workspace\") | .arg' | sort -n | tail -1", "r");
+    if (fp) {
+        int max_ws = 0;
+        if (fscanf(fp, "%d", &max_ws) == 1 && max_ws > 0) {
+            pclose(fp);
+            if (config.debug) {
+                printf("Detected max workspace from bindings: %d\n", max_ws);
+            }
+            return max_ws;
+        }
+        pclose(fp);
+    }
+    
+    // Alternative: check existing workspaces
+    fp = popen("hyprctl -j workspaces 2>/dev/null | jq '[.[].id] | max' 2>/dev/null", "r");
+    if (fp) {
+        int max_ws = 0;
+        if (fscanf(fp, "%d", &max_ws) == 1 && max_ws > 0) {
+            pclose(fp);
+            // If we only see workspaces up to 5 but nothing higher,
+            // assume the user has 10 configured (common default)
+            if (max_ws <= 5) {
+                return 10;
+            }
+            return max_ws;
+        }
+        pclose(fp);
+    }
+    
+    // Default to 10 workspaces if we can't detect
+    return 10;
+}
+
 // Connect to Hyprland IPC
 int connect_hyprland_ipc() {
     const char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
@@ -745,7 +785,18 @@ void process_ipc_events() {
         while (line) {
             if (strncmp(line, "workspace>>", 11) == 0) {
                 int workspace = atoi(line + 11);
-                if (workspace != state.current_workspace) {
+                
+                // Only animate if this is a real workspace change
+                if (workspace != state.current_workspace && workspace > 0) {
+                    // Don't animate if we're going beyond configured workspace boundaries
+                    if (workspace > config.max_workspaces) {
+                        if (config.debug) {
+                            printf("Ignoring workspace %d (beyond max %d)\n", workspace, config.max_workspaces);
+                        }
+                        // Don't update current_workspace to a non-existent workspace
+                        line = strtok(NULL, "\n");
+                        continue;
+                    }
                     if (config.multi_layer_mode) {
                         // Multi-layer mode: update each layer's animation state
                         double now = get_time();
@@ -787,6 +838,7 @@ void process_ipc_events() {
                     
                     state.animation_start = get_time() + config.animation_delay;
                     state.animating = 1;
+                    state.previous_workspace = state.current_workspace;  // Track the previous workspace
                     state.current_workspace = workspace;
                     
                     if (config.debug) {
@@ -1356,6 +1408,12 @@ int main(int argc, char *argv[]) {
         if (load_image(image_path) < 0) return 1;
     }
     
+    // Detect maximum number of workspaces
+    config.max_workspaces = detect_max_workspaces();
+    if (config.debug) {
+        printf("Maximum workspaces detected: %d\n", config.max_workspaces);
+    }
+    
     // Connect to Hyprland IPC
     if (connect_hyprland_ipc() < 0) {
         fprintf(stderr, "Warning: Failed to connect to Hyprland IPC\n");
@@ -1363,6 +1421,7 @@ int main(int argc, char *argv[]) {
     
     // Get initial workspace
     state.current_workspace = 1;
+    state.previous_workspace = 1;
     state.current_offset = 0;
     state.target_offset = 0;
     
