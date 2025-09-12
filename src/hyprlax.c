@@ -1744,6 +1744,8 @@ int main(int argc, char *argv[]) {
     
     // Trigger an initial render to show the background immediately
     render_frame();
+    wl_surface_commit(state.surface);
+    wl_display_flush(state.display);
     
     // Main loop
     state.running = 1;
