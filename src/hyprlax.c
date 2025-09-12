@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define HYPRLAX_VERSION "1.2.2"
+#define HYPRLAX_VERSION "1.2.3"
 #define INITIAL_MAX_LAYERS 8
 #define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
 #define BLUR_SHADER_MAX_SIZE 2048 // Maximum size for dynamically built shader
