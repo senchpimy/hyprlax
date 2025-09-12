@@ -15,17 +15,18 @@ WIDTH, HEIGHT = 1920, 1080
 
 def validate_path(path):
     """Validate path to prevent directory traversal."""
-    # Get absolute path and ensure it's within the current directory
-    abs_path = os.path.abspath(path)
-    base_dir = os.path.abspath(os.path.dirname(__file__))
+    # Get absolute path and resolve symlinks
+    abs_path = os.path.realpath(os.path.abspath(path))
+    base_dir = os.path.realpath(os.path.abspath(os.path.dirname(__file__)))
     
-    # Ensure the path is within the examples directory
-    if not abs_path.startswith(base_dir):
+    # Use commonpath to ensure the path is within the examples directory
+    try:
+        common = os.path.commonpath([abs_path, base_dir])
+        if common != base_dir:
+            raise ValueError(f"Invalid path: {path} (outside of examples directory)")
+    except ValueError:
+        # Paths are on different drives (Windows) or invalid
         raise ValueError(f"Invalid path: {path} (outside of examples directory)")
-    
-    # Check for directory traversal patterns
-    if ".." in path:
-        raise ValueError(f"Invalid path: {path} (contains directory traversal)")
     
     return abs_path
 
@@ -469,10 +470,9 @@ def main():
         print("Install with: pip install Pillow")
         return 1
     
-    # Change to examples directory
+    # Use the script's directory as the examples directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    examples_dir = os.path.join(script_dir, "examples")
-    ensure_dir(examples_dir)
+    examples_dir = script_dir  # We're already in the examples directory
     os.chdir(examples_dir)
     
     # Generate each example set

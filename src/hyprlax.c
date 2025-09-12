@@ -17,6 +17,8 @@
 #include <math.h>
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
+#include <libgen.h>
 
 #include <wayland-client.h>
 #include <wayland-egl.h>
@@ -224,7 +226,9 @@ const char *fragment_shader_src =
     "uniform float u_opacity;\n"
     "void main() {\n"
     "    vec4 color = texture2D(u_texture, v_texcoord);\n"
-    "    gl_FragColor = vec4(color.rgb, color.a * u_opacity);\n"
+    "    // Premultiply alpha for correct blending\n"
+    "    float final_alpha = color.a * u_opacity;\n"
+    "    gl_FragColor = vec4(color.rgb * final_alpha, final_alpha);\n"
     "}\n";
 
 // Blur fragment shader for depth perception
@@ -258,7 +262,9 @@ const char *blur_fragment_shader_src =
     "    }\n"
     "    \n"
     "    result /= total;\n"
-    "    gl_FragColor = vec4(result.rgb, result.a * u_opacity);\n"
+    "    // Premultiply alpha for correct blending\n"
+    "    float final_alpha = result.a * u_opacity;\n"
+    "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
     "}\n";
 
 // Helper: Get time in seconds with high precision
@@ -559,7 +565,8 @@ void render_frame() {
     // Enable blending for multi-layer mode
     if (config.multi_layer_mode && state.layer_count > 1) {
         glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        // Use blend function for premultiplied alpha
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     }
     
     // Get attribute locations once
@@ -603,7 +610,7 @@ void render_frame() {
             glEnableVertexAttribArray(tex_attrib);
             
             // Select shader based on blur amount
-            if (layer->blur_amount > 0.001f) {
+            if (layer->blur_amount > BLUR_MIN_THRESHOLD) {
                 glUseProgram(state.blur_shader_program);
                 
                 // Bind layer texture and set uniforms using pre-cached locations
@@ -888,19 +895,37 @@ void print_version() {
 int validate_path(const char *path) {
     if (!path) return 0;
     
-    // Check for directory traversal patterns
-    if (strstr(path, "../") || strstr(path, "..\\")) {
-        return 0;
+    // Use realpath to resolve the canonical path
+    char resolved_path[PATH_MAX];
+    if (!realpath(path, resolved_path)) {
+        // If the file doesn't exist yet, check the parent directory
+        char *path_copy = strdup(path);
+        if (!path_copy) return 0;
+        
+        char *dir = dirname(path_copy);
+        char resolved_dir[PATH_MAX];
+        
+        if (!realpath(dir, resolved_dir)) {
+            free(path_copy);
+            return 0;  // Parent directory doesn't exist
+        }
+        
+        // Construct the resolved path
+        char *base = basename((char *)path);
+        snprintf(resolved_path, PATH_MAX, "%s/%s", resolved_dir, base);
+        free(path_copy);
     }
     
-    // Check for absolute paths to sensitive directories
+    // Check for access to sensitive directories
     const char *sensitive_dirs[] = {
-        "/etc/", "/sys/", "/proc/", "/dev/",
-        "/boot/", "/root/", NULL
+        "/etc", "/sys", "/proc", "/dev",
+        "/boot", "/root", NULL
     };
     
     for (int i = 0; sensitive_dirs[i]; i++) {
-        if (strncmp(path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0) {
+        if (strncmp(resolved_path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0 &&
+            (resolved_path[strlen(sensitive_dirs[i])] == '/' || 
+             resolved_path[strlen(sensitive_dirs[i])] == '\0')) {
             return 0;
         }
     }
