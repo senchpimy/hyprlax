@@ -26,7 +26,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install dependencies (x86_64)
+      if: matrix.arch == 'x86_64'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -37,35 +38,46 @@ jobs:
           pkg-config \
           make
 
-    - name: Install cross-compilation tools (ARM64)
+    - name: Setup ARM64 cross-compilation
       if: matrix.arch == 'aarch64'
       run: |
-        # Enable arm64 architecture first
-        sudo dpkg --add-architecture arm64
-        
-        # Add ARM64 sources
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-        
         sudo apt-get update
-        
-        # Install cross-compilation tools
         sudo apt-get install -y \
           gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu
+          g++-aarch64-linux-gnu \
+          wayland-protocols \
+          libwayland-bin \
+          pkg-config \
+          make
         
-        # Install ARM64 libraries
-        sudo apt-get install -y \
-          libwayland-dev:arm64 \
-          libegl1-mesa-dev:arm64 \
-          libgles2-mesa-dev:arm64
+        # We'll compile without system libraries and let users install deps
 
-    - name: Build
+    - name: Build (x86_64)
+      if: matrix.arch == 'x86_64'
       env:
         CC: ${{ matrix.cc }}
       run: |
         make clean
         make ARCH=${{ matrix.arch }}
+    
+    - name: Build (ARM64 - static)
+      if: matrix.arch == 'aarch64'
+      env:
+        CC: ${{ matrix.cc }}
+      run: |
+        # Generate protocol files first
+        mkdir -p protocols
+        wayland-scanner private-code < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > protocols/xdg-shell-protocol.c
+        wayland-scanner client-header < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml > protocols/xdg-shell-client-protocol.h
+        wayland-scanner private-code < protocols/wlr-layer-shell-unstable-v1.xml > protocols/wlr-layer-shell-protocol.c
+        wayland-scanner client-header < protocols/wlr-layer-shell-unstable-v1.xml > protocols/wlr-layer-shell-client-protocol.h
+        
+        # Compile with static linking where possible
+        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c src/hyprlax.c -o src/hyprlax.o
+        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c protocols/xdg-shell-protocol.c -o protocols/xdg-shell-protocol.o
+        aarch64-linux-gnu-gcc -Wall -Wextra -O3 -flto -Isrc -c protocols/wlr-layer-shell-protocol.c -o protocols/wlr-layer-shell-protocol.o
+        aarch64-linux-gnu-gcc -flto -static src/hyprlax.o protocols/xdg-shell-protocol.o protocols/wlr-layer-shell-protocol.o -lm -o hyprlax || \
+        aarch64-linux-gnu-gcc -flto src/hyprlax.o protocols/xdg-shell-protocol.o protocols/wlr-layer-shell-protocol.o -lm -o hyprlax
         
     - name: Create binary name
       id: binary
