@@ -27,7 +27,7 @@ def validate_path(path):
             raise ValueError(f"Invalid path: {path} (outside of examples directory)")
     except ValueError:
         # Paths are on different drives (Windows) or invalid
-        raise ValueError(f"Invalid path: {path} (outside of examples directory)")
+        raise ValueError(f"Invalid path: {path} (invalid path or on different drive)")
     
     return abs_path
 
