@@ -1,0 +1,30 @@
+# Build artifacts
+hyprlax
+*.o
+*.a
+*.so
+
+# Generated protocol files
+protocols/*.c
+protocols/*.h
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+.idea/
+
+# Debug files
+core
+vgcore.*
+*.log
+
+# Test files
+test_*
+*.test
+
+# Distribution
+*.tar.gz
+*.zip
+dist/

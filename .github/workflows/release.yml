@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            cc: gcc
+          - os: ubuntu-latest
+            arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwayland-dev \
+          wayland-protocols \
+          libegl1-mesa-dev \
+          libgles2-mesa-dev \
+          pkg-config \
+          make
+
+    - name: Install cross-compilation tools (ARM64)
+      if: matrix.arch == 'aarch64'
+      run: |
+        sudo apt-get install -y \
+          gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
+          libwayland-dev:arm64 \
+          libegl1-mesa-dev:arm64 \
+          libgles2-mesa-dev:arm64
+        
+        # Enable arm64 architecture
+        sudo dpkg --add-architecture arm64
+        sudo apt-get update
+
+    - name: Build
+      env:
+        CC: ${{ matrix.cc }}
+      run: |
+        make clean
+        make ARCH=${{ matrix.arch }}
+        
+    - name: Create binary name
+      id: binary
+      run: |
+        echo "name=hyprlax-${{ matrix.arch }}" >> $GITHUB_OUTPUT
+
+    - name: Rename binary
+      run: |
+        mv hyprlax ${{ steps.binary.outputs.name }}
+        chmod +x ${{ steps.binary.outputs.name }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.binary.outputs.name }}
+        path: ${{ steps.binary.outputs.name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./binaries
+
+    - name: Prepare release files
+      run: |
+        # Move all binaries to root
+        find ./binaries -type f -name 'hyprlax-*' -exec mv {} . \;
+        
+        # Create checksums
+        sha256sum hyprlax-* > SHA256SUMS
+        
+        # List files for verification
+        ls -la hyprlax-* SHA256SUMS
+
+    - name: Extract version from tag
+      id: version
+      run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Generate release notes
+      id: notes
+      run: |
+        # Get commits since last tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -z "$PREV_TAG" ]; then
+          echo "notes=Initial release of hyprlax" >> $GITHUB_OUTPUT
+        else
+          NOTES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" | head -20)
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: hyprlax ${{ steps.version.outputs.version }}
+        body: |
+          ## hyprlax ${{ steps.version.outputs.version }}
+          
+          Smooth parallax wallpaper animations for Hyprland.
+          
+          ### Installation
+          
+          Download the appropriate binary for your architecture:
+          - `hyprlax-x86_64` - For standard x86_64 systems
+          - `hyprlax-aarch64` - For ARM64 systems
+          
+          ```bash
+          # Example for x86_64
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/hyprlax-x86_64
+          chmod +x hyprlax-x86_64
+          sudo mv hyprlax-x86_64 /usr/local/bin/hyprlax
+          ```
+          
+          ### Changes
+          
+          ${{ steps.notes.outputs.notes }}
+          
+          ### Checksums
+          
+          Verify your download with SHA256SUMS file.
+          
+        files: |
+          hyprlax-x86_64
+          hyprlax-aarch64
+          SHA256SUMS
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}

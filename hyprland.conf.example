@@ -1,0 +1,56 @@
+# hyprlax configuration for Hyprland
+# Add these lines to your ~/.config/hypr/hyprland.conf
+
+# ===================================
+# WALLPAPER CONFIGURATION
+# ===================================
+
+# Method 1: Simple setup
+# Kill any existing wallpaper daemons and start hyprlax
+exec-once = pkill swww-daemon; pkill hyprpaper; pkill hyprlax; hyprlax ~/Pictures/wallpaper.jpg
+
+# Method 2: With custom settings (choose one)
+# Smooth and cinematic (default feel)
+# exec-once = pkill hyprlax; hyprlax -d 1.0 -s 200 -e expo ~/Pictures/wallpaper.jpg
+
+# Fast and responsive
+# exec-once = pkill hyprlax; hyprlax -d 0.3 -s 150 -e quint ~/Pictures/wallpaper.jpg
+
+# Relaxed with gentle movement
+# exec-once = pkill hyprlax; hyprlax -d 1.5 -s 250 -e sine ~/Pictures/wallpaper.jpg
+
+# Playful with bounce
+# exec-once = pkill hyprlax; hyprlax -d 0.8 -e elastic ~/Pictures/wallpaper.jpg
+
+# ===================================
+# KEYBINDINGS (Optional)
+# ===================================
+
+# Change wallpaper with Super+Shift+W
+bind = $mainMod SHIFT, W, exec, pkill hyprlax && hyprlax $(find ~/Pictures -type f \( -name "*.jpg" -o -name "*.png" \) | shuf -n 1)
+
+# Toggle wallpaper animation on/off
+bind = $mainMod SHIFT, P, exec, pgrep hyprlax && pkill hyprlax || hyprlax ~/Pictures/wallpaper.jpg
+
+# ===================================
+# WALLPAPER CYCLING SCRIPT (Optional)
+# ===================================
+# Create this script at ~/.config/hypr/scripts/wallpaper-cycle.sh:
+#
+# #!/bin/bash
+# WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+# WALLPAPER=$(find "$WALLPAPER_DIR" -type f \( -name "*.jpg" -o -name "*.png" \) | shuf -n 1)
+# pkill hyprlax
+# hyprlax "$WALLPAPER" &
+# notify-send "Wallpaper Changed" "$(basename "$WALLPAPER")" -i "$WALLPAPER" -t 3000
+#
+# Then bind it:
+# bind = $mainMod, W, exec, ~/.config/hypr/scripts/wallpaper-cycle.sh
+
+# ===================================
+# NOTES
+# ===================================
+# - hyprlax automatically scales the image based on workspace count
+# - For best results, use images at least 2x your screen width
+# - Adjust -s (shift) parameter based on your monitor width
+# - Try different easing functions for different feels
