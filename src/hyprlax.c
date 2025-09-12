@@ -1687,14 +1687,21 @@ int main(int argc, char *argv[]) {
     
     state.egl_context = eglCreateContext(state.egl_display, config_egl, EGL_NO_CONTEXT, context_attribs);
     
-    // Create EGL window
-    state.egl_window = wl_egl_window_create(state.surface, 1920, 1080);
+    // Create EGL window with default dimensions
+    int default_width = 1920;
+    int default_height = 1080;
+    state.egl_window = wl_egl_window_create(state.surface, default_width, default_height);
     state.egl_surface = eglCreateWindowSurface(state.egl_display, config_egl, state.egl_window, NULL);
     
     eglMakeCurrent(state.egl_display, state.egl_surface, state.egl_surface, state.egl_context);
     
     // Initialize OpenGL
     if (init_gl() < 0) return 1;
+    
+    // Set initial viewport and dimensions
+    state.width = default_width;
+    state.height = default_height;
+    glViewport(0, 0, default_width, default_height);
     
     // Load images
     if (config.multi_layer_mode) {
