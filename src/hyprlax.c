@@ -107,10 +107,16 @@ struct {
     GLuint shader_program;
     GLuint blur_shader_program;  // Blur shader for depth effects
     GLuint vbo, ebo;
+    
+    // Standard shader uniforms
     GLint u_opacity;  // Uniform location for opacity
     GLint u_texture;  // Uniform location for texture
-    GLint u_blur_amount;  // Uniform location for blur amount
-    GLint u_resolution;  // Uniform location for resolution
+    
+    // Blur shader uniforms
+    GLint blur_u_texture;  // Uniform location for texture in blur shader
+    GLint blur_u_opacity;  // Uniform location for opacity in blur shader
+    GLint blur_u_blur_amount;  // Uniform location for blur amount
+    GLint blur_u_resolution;  // Uniform location for resolution
     
     // Window dimensions
     int width, height;
@@ -324,8 +330,14 @@ int init_gl() {
     state.u_opacity = glGetUniformLocation(state.shader_program, "u_opacity");
     
     // Get uniform locations for blur shader
-    state.u_blur_amount = glGetUniformLocation(state.blur_shader_program, "u_blur_amount");
-    state.u_resolution = glGetUniformLocation(state.blur_shader_program, "u_resolution");
+    glUseProgram(state.blur_shader_program);
+    state.blur_u_texture = glGetUniformLocation(state.blur_shader_program, "u_texture");
+    state.blur_u_opacity = glGetUniformLocation(state.blur_shader_program, "u_opacity");
+    state.blur_u_blur_amount = glGetUniformLocation(state.blur_shader_program, "u_blur_amount");
+    state.blur_u_resolution = glGetUniformLocation(state.blur_shader_program, "u_resolution");
+    
+    // Switch back to standard shader
+    glUseProgram(state.shader_program);
     
     // Create VBO and EBO for better performance
     glGenBuffers(1, &state.vbo);
@@ -577,14 +589,12 @@ void render_frame() {
             if (layer->blur_amount > 0.001f) {
                 glUseProgram(state.blur_shader_program);
                 
-                // Bind layer texture and set uniforms
+                // Bind layer texture and set uniforms using pre-cached locations
                 glBindTexture(GL_TEXTURE_2D, layer->texture);
-                GLint blur_u_texture = glGetUniformLocation(state.blur_shader_program, "u_texture");
-                GLint blur_u_opacity = glGetUniformLocation(state.blur_shader_program, "u_opacity");
-                glUniform1i(blur_u_texture, 0);
-                glUniform1f(blur_u_opacity, layer->opacity);
-                glUniform1f(state.u_blur_amount, layer->blur_amount);
-                glUniform2f(state.u_resolution, (float)state.width, (float)state.height);
+                glUniform1i(state.blur_u_texture, 0);
+                glUniform1f(state.blur_u_opacity, layer->opacity);
+                glUniform1f(state.blur_u_blur_amount, layer->blur_amount);
+                glUniform2f(state.blur_u_resolution, (float)state.width, (float)state.height);
             } else {
                 glUseProgram(state.shader_program);
                 
