@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define HYPRLAX_VERSION "1.1.0"
+#define HYPRLAX_VERSION "1.2.0"
 #define MAX_LAYERS 8
 
 #include <stdio.h>
