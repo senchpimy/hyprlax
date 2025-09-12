@@ -1735,6 +1735,9 @@ int main(int argc, char *argv[]) {
     state.last_frame_time = get_time();
     state.fps_timer = state.last_frame_time;
     
+    // Trigger an initial render to show the background immediately
+    render_frame();
+    
     // Main loop
     state.running = 1;
     
