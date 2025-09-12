@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -237,11 +238,16 @@ const char *fragment_shader_src =
     "}\n";
 
 // Build blur fragment shader with constants
+// Note: sprintf is used here for simple constant injection at runtime
+// This is a common pattern in OpenGL applications for shader variants
 char *build_blur_shader() {
     char *shader = malloc(BLUR_SHADER_MAX_SIZE);
-    if (!shader) return NULL;
+    if (!shader) {
+        fprintf(stderr, "Failed to allocate memory for blur shader\n");
+        return NULL;
+    }
     
-    snprintf(shader, BLUR_SHADER_MAX_SIZE,
+    int written = snprintf(shader, BLUR_SHADER_MAX_SIZE,
         "precision highp float;\n"
         "varying vec2 v_texcoord;\n"
         "uniform sampler2D u_texture;\n"
@@ -276,6 +282,13 @@ char *build_blur_shader() {
         "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
         "}\n",
         BLUR_MIN_THRESHOLD, BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
+    
+    // Check if the shader was truncated
+    if (written < 0 || written >= BLUR_SHADER_MAX_SIZE) {
+        fprintf(stderr, "Error: Blur shader source too large or formatting failed\n");
+        free(shader);
+        return NULL;
+    }
     
     return shader;
 }
@@ -354,16 +367,34 @@ int init_gl() {
     
     glUseProgram(state.shader_program);
     
-    // Get uniform locations for standard shader
+    // Get uniform locations for standard shader with error checking
     state.u_texture = glGetUniformLocation(state.shader_program, "u_texture");
+    if (state.u_texture == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_texture' in standard shader\n");
+    }
     state.u_opacity = glGetUniformLocation(state.shader_program, "u_opacity");
+    if (state.u_opacity == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_opacity' in standard shader\n");
+    }
     
-    // Get uniform locations for blur shader
+    // Get uniform locations for blur shader with error checking
     glUseProgram(state.blur_shader_program);
     state.blur_u_texture = glGetUniformLocation(state.blur_shader_program, "u_texture");
+    if (state.blur_u_texture == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_texture' in blur shader\n");
+    }
     state.blur_u_opacity = glGetUniformLocation(state.blur_shader_program, "u_opacity");
+    if (state.blur_u_opacity == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_opacity' in blur shader\n");
+    }
     state.blur_u_blur_amount = glGetUniformLocation(state.blur_shader_program, "u_blur_amount");
+    if (state.blur_u_blur_amount == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_blur_amount' in blur shader\n");
+    }
     state.blur_u_resolution = glGetUniformLocation(state.blur_shader_program, "u_resolution");
+    if (state.blur_u_resolution == -1) {
+        fprintf(stderr, "Warning: Failed to find uniform 'u_resolution' in blur shader\n");
+    }
     
     // Switch back to standard shader
     glUseProgram(state.shader_program);
@@ -486,7 +517,19 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
 int add_layer(const char *path, float shift_multiplier, float opacity) {
     // Grow the layer array if needed
     if (state.layer_count >= state.max_layers) {
+        // Check for integer overflow and reasonable limits
+        if (state.max_layers > INT_MAX / 2 || state.max_layers > 1000) {
+            fprintf(stderr, "Error: Maximum layer limit reached (%d layers)\n", state.max_layers);
+            return -1;
+        }
         int new_max = state.max_layers * 2;
+        
+        // Check multiplication overflow for size calculation
+        if (new_max > SIZE_MAX / sizeof(struct layer)) {
+            fprintf(stderr, "Error: Layer array size would exceed memory limits\n");
+            return -1;
+        }
+        
         struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
         if (!new_layers) {
             fprintf(stderr, "Failed to allocate memory for %d layers\n", new_max);
@@ -722,6 +765,8 @@ void render_frame() {
 int detect_max_workspaces() {
     // Try to get workspace info directly from hyprctl without jq
     // This is safer and doesn't require external JSON parser
+    // Note: popen is used here with simple, fixed commands to hyprctl
+    // which is a trusted Hyprland binary - no user input is passed
     FILE *fp = popen("hyprctl workspaces 2>/dev/null", "r");
     if (fp) {
         char buffer[256];
@@ -1003,9 +1048,9 @@ int validate_path(const char *path) {
         return 0;
     }
     
-    // Use realpath to resolve the canonical path
-    char resolved_path[PATH_MAX];
-    if (!realpath(path, resolved_path)) {
+    // Use realpath with dynamic allocation for safety
+    char *resolved_path = realpath(path, NULL);
+    if (!resolved_path) {
         // If the file doesn't exist yet, check the parent directory
         char *path_copy = strdup(path);
         if (!path_copy) {
@@ -1014,9 +1059,9 @@ int validate_path(const char *path) {
         }
         
         char *dir = dirname(path_copy);
-        char resolved_dir[PATH_MAX];
+        char *resolved_dir = realpath(dir, NULL);
         
-        if (!realpath(dir, resolved_dir)) {
+        if (!resolved_dir) {
             fprintf(stderr, "Error: Path validation failed - parent directory '%s' does not exist\n", dir);
             free(path_copy);
             return 0;  // Parent directory doesn't exist
@@ -1024,7 +1069,16 @@ int validate_path(const char *path) {
         
         // Construct the resolved path
         char *base = basename((char *)path);
-        snprintf(resolved_path, PATH_MAX, "%s/%s", resolved_dir, base);
+        size_t path_len = strlen(resolved_dir) + strlen(base) + 2;
+        resolved_path = malloc(path_len);
+        if (!resolved_path) {
+            fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
+            free(resolved_dir);
+            free(path_copy);
+            return 0;
+        }
+        snprintf(resolved_path, path_len, "%s/%s", resolved_dir, base);
+        free(resolved_dir);
         free(path_copy);
     }
     
@@ -1034,17 +1088,20 @@ int validate_path(const char *path) {
         "/boot", "/root", NULL
     };
     
+    int result = 1;  // Assume valid unless proven otherwise
     for (int i = 0; sensitive_dirs[i]; i++) {
         if (strncmp(resolved_path, sensitive_dirs[i], strlen(sensitive_dirs[i])) == 0 &&
             (resolved_path[strlen(sensitive_dirs[i])] == '/' || 
              resolved_path[strlen(sensitive_dirs[i])] == '\0')) {
             fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n", 
                     sensitive_dirs[i]);
-            return 0;
+            result = 0;
+            break;
         }
     }
     
-    return 1;
+    free(resolved_path);  // Free the dynamically allocated path
+    return result;
 }
 
 // Parse config file
@@ -1068,13 +1125,18 @@ int parse_config_file(const char *filename) {
         line_num++;
         
         // Check if line was truncated (no newline found)
-        if (!strchr(line, '\n') && !feof(file)) {
-            fprintf(stderr, "Error: Line %d exceeds buffer size of %d characters\n", 
-                    line_num, MAX_CONFIG_LINE_SIZE - 1);
-            // Skip rest of the line
-            int c;
-            while ((c = fgetc(file)) != '\n' && c != EOF);
-            continue;
+        if (!strchr(line, '\n')) {
+            // Only report error if not at EOF (EOF without newline is acceptable)
+            if (!feof(file)) {
+                fprintf(stderr, "Error: Line %d exceeds buffer size of %d characters\n", 
+                        line_num, MAX_CONFIG_LINE_SIZE - 1);
+                // Skip rest of the line safely
+                int c;
+                while ((c = fgetc(file)) != EOF) {
+                    if (c == '\n') break;
+                }
+                continue;
+            }
         }
         
         // Skip comments and empty lines
@@ -1125,7 +1187,21 @@ int parse_config_file(const char *filename) {
             
             // Grow the layer array if needed
             if (state.layer_count >= state.max_layers) {
+                // Check for integer overflow and reasonable limits
+                if (state.max_layers > INT_MAX / 2 || state.max_layers > 1000) {
+                    fprintf(stderr, "Error: Maximum layer limit reached (%d layers) at line %d\n", state.max_layers, line_num);
+                    fclose(file);
+                    return -1;
+                }
                 int new_max = state.max_layers * 2;
+                
+                // Check multiplication overflow for size calculation
+                if (new_max > SIZE_MAX / sizeof(struct layer)) {
+                    fprintf(stderr, "Error: Layer array size would exceed memory limits at line %d\n", line_num);
+                    fclose(file);
+                    return -1;
+                }
+                
                 struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
                 if (!new_layers) {
                     fprintf(stderr, "Failed to allocate memory for %d layers at line %d\n", new_max, line_num);
@@ -1274,7 +1350,21 @@ int main(int argc, char *argv[]) {
                     
                     // Grow the layer array if needed
                     if (state.layer_count >= state.max_layers) {
+                        // Check for integer overflow and reasonable limits
+                        if (state.max_layers > INT_MAX / 2 || state.max_layers > 1000) {
+                            fprintf(stderr, "Error: Maximum layer limit reached (%d layers)\n", state.max_layers);
+                            free(spec);
+                            return 1;
+                        }
                         int new_max = state.max_layers * 2;
+                        
+                        // Check multiplication overflow for size calculation
+                        if (new_max > SIZE_MAX / sizeof(struct layer)) {
+                            fprintf(stderr, "Error: Layer array size would exceed memory limits\n");
+                            free(spec);
+                            return 1;
+                        }
+                        
                         struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
                         if (!new_layers) {
                             fprintf(stderr, "Error: Failed to allocate memory for %d layers\n", new_max);

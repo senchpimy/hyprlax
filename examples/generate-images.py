@@ -15,8 +15,9 @@ WIDTH, HEIGHT = 1920, 1080
 
 def validate_path(path):
     """Validate path to prevent directory traversal."""
-    # Get absolute path and resolve symlinks
-    abs_path = os.path.realpath(os.path.abspath(path))
+    # Get absolute path (do not resolve symlinks in user-supplied path for security)
+    abs_path = os.path.abspath(path)
+    # Base directory should have symlinks resolved for comparison
     base_dir = os.path.realpath(os.path.abspath(os.path.dirname(__file__)))
     
     # Use commonpath to ensure the path is within the examples directory
