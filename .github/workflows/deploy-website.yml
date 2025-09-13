@@ -38,52 +38,14 @@ jobs:
       run: pnpm build
 
     - name: Deploy to Bunny CDN
-      env:
-        BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
-        BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
-        BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
-        BUNNY_PULL_ZONE_ID: ${{ secrets.BUNNY_PULL_ZONE_ID }}
-      run: |
-        # Upload files to Bunny Storage
-        cd website/dist
-        
-        # Function to upload a file
-        upload_file() {
-          local file="$1"
-          local remote_path="${file#./}"
-          
-          # Set content type based on file extension
-          case "${file##*.}" in
-            html) content_type="text/html" ;;
-            css) content_type="text/css" ;;
-            js) content_type="application/javascript" ;;
-            json) content_type="application/json" ;;
-            svg) content_type="image/svg+xml" ;;
-            png) content_type="image/png" ;;
-            jpg|jpeg) content_type="image/jpeg" ;;
-            webp) content_type="image/webp" ;;
-            sh) content_type="text/plain" ;;
-            *) content_type="application/octet-stream" ;;
-          esac
-          
-          echo "Uploading $remote_path..."
-          curl -X PUT \
-            -H "AccessKey: $BUNNY_STORAGE_PASSWORD" \
-            -H "Content-Type: $content_type" \
-            --data-binary "@$file" \
-            "https://$BUNNY_STORAGE_HOSTNAME/$BUNNY_STORAGE_ZONE/$remote_path"
-        }
-        
-        # Upload all files
-        find . -type f | while read file; do
-          upload_file "$file"
-        done
-        
-        # Purge CDN cache
-        echo "Purging CDN cache..."
-        curl -X POST \
-          -H "AccessKey: $BUNNY_API_KEY" \
-          "https://api.bunny.net/pullzone/$BUNNY_PULL_ZONE_ID/purgeCache"
-        
-        echo "Deployment complete!"
+      uses: ayeressian/bunnycdn-storage-deploy@v2.2.2
+      with:
+        source: "website/dist"
+        destination: "/"
+        storageZoneName: ${{ secrets.BUNNY_STORAGE_ZONE }}
+        storagePassword: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        accessKey: ${{ secrets.BUNNY_API_KEY }}
+        pullZoneId: ${{ secrets.BUNNY_PULL_ZONE_ID }}
+        upload: true
+        remove: true
+        purgePullZone: true
