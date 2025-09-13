@@ -25,13 +25,16 @@
 </script>
 
 <main class="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
-  <!-- Interactive gradient background - subtle mouse-based shift -->
+  <!-- Interactive gradient background - subtle position shift -->
   <div 
-    class="absolute inset-0 transition-all duration-700 ease-out"
-    style="background: linear-gradient({45 + (mouseX - 0.5) * 20}deg, 
-           #9D00FF {0 + (mouseY - 0.5) * 10}%, 
-           #050810 {50 + (mouseX - 0.5) * 5}%, 
-           #00D9FF {100 + (mouseY - 0.5) * 10}%)"
+    class="absolute inset-0 transition-all duration-1000 ease-out"
+    style="background: linear-gradient(135deg, 
+           #9D00FF, 
+           #050810 {40 + (mouseX - 0.5) * 15}%, 
+           #FF007F {60 + (mouseY - 0.5) * 15}%, 
+           #00D9FF);
+           background-size: 120% 120%;
+           background-position: {50 - (mouseX - 0.5) * 20}% {50 - (mouseY - 0.5) * 20}%"
   ></div>
   
   <!-- Noise texture overlay -->
