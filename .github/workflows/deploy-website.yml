@@ -38,14 +38,10 @@ jobs:
       run: pnpm build
 
     - name: Deploy to Bunny CDN
-      uses: ayeressian/bunnycdn-storage-deploy@v2.2.2
+      uses: own3d/bunny-action@main
       with:
-        source: "website/dist"
-        destination: "/"
-        storageZoneName: ${{ secrets.BUNNY_STORAGE_ZONE }}
-        storagePassword: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        accessKey: ${{ secrets.BUNNY_API_KEY }}
-        pullZoneId: ${{ secrets.BUNNY_PULL_ZONE_ID }}
-        upload: true
-        remove: true
-        purgePullZone: true
+        source: website/dist
+        destination: /
+        storageZone: ${{ secrets.BUNNY_STORAGE_ZONE }}
+        apiKey: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        cleanDestination: true
