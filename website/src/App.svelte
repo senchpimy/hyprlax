@@ -9,7 +9,7 @@
   let animationFrame;
   
   const copyCommand = () => {
-    navigator.clipboard.writeText('curl -sSL https://hyprlax.dev/install.sh | bash');
+    navigator.clipboard.writeText('curl -sSL https://hyprlax.com/install.sh | bash');
     copied = true;
     setTimeout(() => copied = false, 2000);
   };
@@ -103,7 +103,7 @@
         <div class="absolute inset-0 bg-gradient-to-r from-hypr-blue/10 to-hypr-pink/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         <div class="relative flex items-center justify-between">
           <code class="text-sm sm:text-base md:text-lg font-mono text-gray-300">
-            <span class="text-hypr-blue">$</span> curl -sSL https://hyprlax.dev/install.sh <span class="text-gray-500">|</span> bash
+            <span class="text-hypr-blue">$</span> curl -sSL https://hyprlax.com/install.sh <span class="text-gray-500">|</span> bash
           </code>
           <div class="ml-4 flex-shrink-0">
             {#if copied}
