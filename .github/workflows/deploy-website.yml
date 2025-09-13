@@ -38,12 +38,12 @@ jobs:
       run: pnpm build
 
     - name: Deploy to Bunny CDN
-      uses: own3d/bunny-action@main
-      env:
-        BUNNY_API_ACCESS_KEY: ${{ secrets.BUNNY_API_KEY }}
-        BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
-        BUNNY_STORAGE_USERNAME: ${{ secrets.BUNNY_STORAGE_ZONE }}
-        BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        BUNNY_PULL_ZONE_ID: ${{ secrets.BUNNY_PULL_ZONE_ID }}
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
-        args: deploy --dir=website/dist
+        server: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
+        username: ${{ secrets.BUNNY_STORAGE_ZONE }}
+        password: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        local-dir: ./website/dist/
+        server-dir: ./
+        protocol: ftp
+        port: 21
