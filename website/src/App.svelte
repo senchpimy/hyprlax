@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   
   let copied = false;
+  let mouseX = 0.5;
+  let mouseY = 0.5;
   
   const copyCommand = () => {
     navigator.clipboard.writeText('curl -sSL https://hyprlax.dev/install.sh | bash');
@@ -9,14 +11,25 @@
     setTimeout(() => copied = false, 2000);
   };
   
+  const handleMouseMove = (e) => {
+    mouseX = e.clientX / window.innerWidth;
+    mouseY = e.clientY / window.innerHeight;
+  };
+  
   onMount(() => {
-    // Particle animation would go here if needed
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
   });
 </script>
 
 <main class="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
-  <!-- Animated gradient background -->
-  <div class="absolute inset-0 bg-gradient-to-br from-hypr-purple via-hypr-dark to-hypr-blue animate-gradient"></div>
+  <!-- Interactive gradient background -->
+  <div 
+    class="absolute inset-0 transition-all duration-1000 ease-out"
+    style="background: radial-gradient(circle at {mouseX * 100}% {mouseY * 100}%, #00D9FF 0%, #FF007F 40%, #9D00FF 60%, #050810 100%)"
+  ></div>
   
   <!-- Noise texture overlay -->
   <div class="absolute inset-0 opacity-10" style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iLjc1IiBudW1PY3RhdmVzPSIxMCIvPjwvZmlsdGVyPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbHRlcj0idXJsKCNhKSIgb3BhY2l0eT0iMC4wNSIvPjwvc3ZnPg==');"></div>
