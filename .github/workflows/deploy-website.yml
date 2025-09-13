@@ -38,12 +38,9 @@ jobs:
       run: pnpm build
 
     - name: Deploy to Bunny CDN
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      uses: R-J-dev/bunny-deploy@v2.0.3
+      env:
+        BUNNY_API_KEY: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
       with:
-        server: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
-        username: ${{ secrets.BUNNY_STORAGE_ZONE }}
-        password: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        local-dir: ./website/dist/
-        server-dir: ./
-        protocol: ftp
-        port: 21
+        args: deploy ./website/dist ${{ secrets.BUNNY_STORAGE_ZONE }}
