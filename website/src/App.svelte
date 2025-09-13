@@ -22,8 +22,15 @@
   const animate = () => {
     // Smooth easing with momentum - the gradient "follows" the mouse with delay
     const easing = 0.08; // Lower = more delay/smoother
-    mouseX += (targetX - mouseX) * easing;
-    mouseY += (targetY - mouseY) * easing;
+    
+    // Add subtle idle animation
+    const time = Date.now() * 0.0001; // Very slow time factor
+    const idleX = Math.sin(time) * 0.02; // Subtle horizontal drift
+    const idleY = Math.cos(time * 0.7) * 0.02; // Subtle vertical drift
+    
+    // Combine mouse influence with idle animation
+    mouseX += (targetX + idleX - mouseX) * easing;
+    mouseY += (targetY + idleY - mouseY) * easing;
     
     animationFrame = requestAnimationFrame(animate);
   };
