@@ -4,6 +4,9 @@
   let copied = false;
   let mouseX = 0.5;
   let mouseY = 0.5;
+  let targetX = 0.5;
+  let targetY = 0.5;
+  let animationFrame;
   
   const copyCommand = () => {
     navigator.clipboard.writeText('curl -sSL https://hyprlax.dev/install.sh | bash');
@@ -12,29 +15,41 @@
   };
   
   const handleMouseMove = (e) => {
-    mouseX = e.clientX / window.innerWidth;
-    mouseY = e.clientY / window.innerHeight;
+    targetX = e.clientX / window.innerWidth;
+    targetY = e.clientY / window.innerHeight;
+  };
+  
+  const animate = () => {
+    // Smooth easing with momentum - the gradient "follows" the mouse with delay
+    const easing = 0.08; // Lower = more delay/smoother
+    mouseX += (targetX - mouseX) * easing;
+    mouseY += (targetY - mouseY) * easing;
+    
+    animationFrame = requestAnimationFrame(animate);
   };
   
   onMount(() => {
     window.addEventListener('mousemove', handleMouseMove);
+    animate();
+    
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
     };
   });
 </script>
 
 <main class="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
-  <!-- Interactive gradient background - subtle position shift -->
+  <!-- Interactive gradient background - smooth easing movement -->
   <div 
-    class="absolute inset-0 transition-all duration-1000 ease-out"
+    class="absolute inset-0"
     style="background: linear-gradient(135deg, 
            #9D00FF, 
-           #050810 {40 + (mouseX - 0.5) * 15}%, 
-           #FF007F {60 + (mouseY - 0.5) * 15}%, 
+           #050810 {40 + (mouseX - 0.5) * 10}%, 
+           #FF007F {60 + (mouseY - 0.5) * 10}%, 
            #00D9FF);
-           background-size: 120% 120%;
-           background-position: {50 - (mouseX - 0.5) * 20}% {50 - (mouseY - 0.5) * 20}%"
+           background-size: 130% 130%;
+           background-position: {50 - (mouseX - 0.5) * 15}% {50 - (mouseY - 0.5) * 15}%"
   ></div>
   
   <!-- Noise texture overlay -->
