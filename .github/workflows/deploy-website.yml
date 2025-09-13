@@ -39,9 +39,11 @@ jobs:
 
     - name: Deploy to Bunny CDN
       uses: own3d/bunny-action@main
+      env:
+        BUNNY_API_ACCESS_KEY: ${{ secrets.BUNNY_API_KEY }}
+        BUNNY_STORAGE_HOSTNAME: ${{ secrets.BUNNY_STORAGE_HOSTNAME }}
+        BUNNY_STORAGE_USERNAME: ${{ secrets.BUNNY_STORAGE_ZONE }}
+        BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        BUNNY_PULL_ZONE_ID: ${{ secrets.BUNNY_PULL_ZONE_ID }}
       with:
-        source: website/dist
-        destination: /
-        storageZone: ${{ secrets.BUNNY_STORAGE_ZONE }}
-        apiKey: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        cleanDestination: true
+        args: deploy --dir=website/dist
