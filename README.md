@@ -17,7 +17,6 @@ Smooth parallax wallpaper animations for Hyprland.
 - ⚡ **Lightweight** - Native Wayland client using layer-shell protocol
 - 🎨 **Customizable** - Per-layer easing functions, delays, and animation parameters
 - 🔄 **Seamless transitions** - Interrupts and chains animations smoothly
-- 🎯 **Phase 3 features** - Advanced per-layer controls for professional effects
 
 ## Installation
 
