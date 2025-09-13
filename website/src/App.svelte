@@ -47,14 +47,14 @@
 </script>
 
 <main class="h-screen w-screen flex flex-col items-center justify-center relative overflow-hidden">
-  <!-- Interactive gradient background - smooth easing movement -->
+  <!-- Interactive gradient background - subtle dark gradient -->
   <div 
     class="absolute inset-0"
     style="background: linear-gradient(135deg, 
-           #9D00FF, 
-           #050810 {40 + (mouseX - 0.5) * 10}%, 
-           #FF007F {60 + (mouseY - 0.5) * 10}%, 
-           #00D9FF);
+           #0A0E1B, 
+           #050810 {45 + (mouseX - 0.5) * 10}%, 
+           #0D1220 {55 + (mouseY - 0.5) * 10}%, 
+           #070B15);
            background-size: 130% 130%;
            background-position: {50 - (mouseX - 0.5) * 15}% {50 - (mouseY - 0.5) * 15}%"
   ></div>
