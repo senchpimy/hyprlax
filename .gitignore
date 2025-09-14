@@ -21,7 +21,7 @@ vgcore.*
 *.log
 
 # Test files
-test_*
+tests/test_hyprlax
 *.test
 
 # Distribution

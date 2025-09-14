@@ -81,4 +81,18 @@ uninstall:
 uninstall-user:
 	rm -f ~/.local/bin/$(TARGET)
 
-.PHONY: all clean install install-user uninstall uninstall-user
+# Test suite
+TEST_SRCS = tests/test_hyprlax.c
+TEST_TARGET = tests/test_hyprlax
+
+$(TEST_TARGET): $(TEST_SRCS) $(TARGET)
+	$(CC) $(CFLAGS) $(TEST_SRCS) -lm -o $(TEST_TARGET)
+
+test: $(TEST_TARGET)
+	@echo "Running test suite..."
+	@./$(TEST_TARGET)
+
+clean-tests:
+	rm -f $(TEST_TARGET)
+
+.PHONY: all clean install install-user uninstall uninstall-user test clean-tests
