@@ -133,6 +133,7 @@ struct {
     
     // Window dimensions
     int width, height;
+    int configured;  // Track if we've received initial configuration
     
     // Image data (for single layer mode)
     int img_width, img_height;
@@ -1038,6 +1039,7 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *la
                                     uint32_t serial, uint32_t width, uint32_t height) {
     state.width = width;
     state.height = height;
+    state.configured = 1;  // Mark as configured
     
     zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
     
@@ -1687,10 +1689,10 @@ int main(int argc, char *argv[]) {
     
     state.egl_context = eglCreateContext(state.egl_display, config_egl, EGL_NO_CONTEXT, context_attribs);
     
-    // Create EGL window with default dimensions
-    int default_width = 1920;
-    int default_height = 1080;
-    state.egl_window = wl_egl_window_create(state.surface, default_width, default_height);
+    // Create EGL window with initial dimensions (will be resized on configure)
+    int initial_width = 1;
+    int initial_height = 1;
+    state.egl_window = wl_egl_window_create(state.surface, initial_width, initial_height);
     state.egl_surface = eglCreateWindowSurface(state.egl_display, config_egl, state.egl_window, NULL);
     
     eglMakeCurrent(state.egl_display, state.egl_surface, state.egl_surface, state.egl_context);
@@ -1698,10 +1700,7 @@ int main(int argc, char *argv[]) {
     // Initialize OpenGL
     if (init_gl() < 0) return 1;
     
-    // Set initial viewport and dimensions
-    state.width = default_width;
-    state.height = default_height;
-    glViewport(0, 0, default_width, default_height);
+    // Don't set viewport yet - wait for configuration from compositor
     
     // Load images
     if (config.multi_layer_mode) {
@@ -1742,10 +1741,14 @@ int main(int argc, char *argv[]) {
     state.last_frame_time = get_time();
     state.fps_timer = state.last_frame_time;
     
-    // Trigger an initial render to show the background immediately
-    render_frame();
+    // Commit the surface to trigger configuration from compositor
     wl_surface_commit(state.surface);
     wl_display_flush(state.display);
+    
+    // Wait for initial configuration before rendering
+    while (!state.configured && state.running) {
+        wl_display_dispatch(state.display);
+    }
     
     // Main loop
     state.running = 1;
