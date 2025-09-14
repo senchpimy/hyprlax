@@ -312,7 +312,12 @@ main() {
     # Confirm installation
     if [ "$FORCE_INSTALL" = "0" ] && [ "$INSTALLED_VERSION" != "none" ]; then
         echo
-        read -p "Do you want to proceed with installation? (y/N) " -n 1 -r
+        # Use /dev/tty for input when piped through bash
+        if [ -t 0 ]; then
+            read -p "Do you want to proceed with installation? (y/N) " -n 1 -r
+        else
+            read -p "Do you want to proceed with installation? (y/N) " -n 1 -r < /dev/tty
+        fi
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
