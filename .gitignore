@@ -1,5 +1,6 @@
 # Build artifacts
 hyprlax
+hyprlax-ctl
 *.o
 *.a
 *.so
@@ -22,7 +23,9 @@ vgcore.*
 
 # Test files
 tests/test_hyprlax
+tests/test_ipc
 *.test
+test_config/
 
 # Distribution
 *.tar.gz

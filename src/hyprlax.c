@@ -548,12 +548,10 @@ void sync_ipc_layers() {
         
         // Find existing layer with same path
         struct layer* existing = NULL;
-        int existing_idx = -1;
         for (int j = 0; j < state.layer_count; j++) {
             if (state.layers[j].image_path && 
                 strcmp(state.layers[j].image_path, ipc_layer->image_path) == 0) {
                 existing = &state.layers[j];
-                existing_idx = j;
                 break;
             }
         }

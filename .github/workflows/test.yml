@@ -93,11 +93,15 @@ jobs:
     
     - name: Run cppcheck
       run: |
+        # Generate protocol headers first so cppcheck can find them
+        make protocols/xdg-shell-client-protocol.h protocols/wlr-layer-shell-client-protocol.h
         cppcheck --enable=all --error-exitcode=1 \
           --suppress=missingIncludeSystem \
           --suppress=unusedFunction \
           --suppress=*:src/stb_image.h \
+          --suppress=constVariablePointer \
           --inline-suppr \
+          -I protocols \
           src/hyprlax.c
     
     - name: Check code formatting

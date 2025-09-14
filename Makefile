@@ -1,6 +1,12 @@
 CC = gcc
+# Use generic architecture for CI compatibility
+ifdef CI
+CFLAGS = -Wall -Wextra -O2 -Isrc
+LDFLAGS =
+else
 CFLAGS = -Wall -Wextra -O3 -march=native -flto -Isrc
 LDFLAGS = -flto
+endif
 
 # Cross-compilation support
 ifdef ARCH
