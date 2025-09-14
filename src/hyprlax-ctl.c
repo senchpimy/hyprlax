@@ -76,17 +76,17 @@ int main(int argc, char** argv) {
     
     // Build command string
     char command[IPC_MAX_MESSAGE_SIZE];
-    int offset = 0;
+    size_t offset = 0;
     
     for (int i = 1; i < argc; i++) {
         int written = snprintf(command + offset, sizeof(command) - offset, 
                                "%s%s", (i > 1 ? " " : ""), argv[i]);
-        if (written < 0 || offset + written >= sizeof(command)) {
+        if (written < 0 || offset + (size_t)written >= sizeof(command)) {
             fprintf(stderr, "Command too long\n");
             close(sock);
             return 1;
         }
-        offset += written;
+        offset += (size_t)written;
     }
     
     // Send command
