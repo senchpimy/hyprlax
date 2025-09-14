@@ -94,8 +94,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Get binary path based on install type
-get_binary_path() {
+# Get binary paths based on install type
+get_binary_paths() {
+    if [ "$INSTALL_TYPE" = "system" ]; then
+        echo "/usr/local/bin/hyprlax /usr/local/bin/hyprlax-ctl"
+    else
+        echo "$HOME/.local/bin/hyprlax $HOME/.local/bin/hyprlax-ctl"
+    fi
+}
+
+# Get hyprlax binary path based on install type
+get_hyprlax_path() {
     if [ "$INSTALL_TYPE" = "system" ]; then
         echo "/usr/local/bin/hyprlax"
     else
@@ -103,9 +112,18 @@ get_binary_path() {
     fi
 }
 
+# Get hyprlax-ctl binary path based on install type  
+get_ctl_path() {
+    if [ "$INSTALL_TYPE" = "system" ]; then
+        echo "/usr/local/bin/hyprlax-ctl"
+    else
+        echo "$HOME/.local/bin/hyprlax-ctl"
+    fi
+}
+
 # Get installed version
 get_installed_version() {
-    local binary_path=$(get_binary_path)
+    local binary_path=$(get_hyprlax_path)
     
     if [ -f "$binary_path" ] && [ -x "$binary_path" ]; then
         # Extract version number from hyprlax --version output
@@ -180,42 +198,44 @@ detect_arch() {
 download_binary() {
     local version="$1"
     local arch="$2"
-    local temp_file="/tmp/hyprlax-download"
+    local binary_name="$3"  # either "hyprlax" or "hyprlax-ctl"
+    local temp_file="/tmp/${binary_name}-download"
     
     # Construct download URL
-    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/hyprlax-${arch}"
+    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/${binary_name}-${arch}"
     
-    print_step "Downloading hyprlax ${version} for ${arch}..." >&2
+    print_step "Downloading ${binary_name} ${version} for ${arch}..." >&2
     
     if curl -sSL "$download_url" -o "$temp_file"; then
         # Verify it's actually a binary
         if file "$temp_file" | grep -q "ELF"; then
-            print_success "Download successful" >&2
+            print_success "Download of ${binary_name} successful" >&2
             echo "$temp_file"  # Only output the filename to stdout
         else
-            print_error "Downloaded file is not a valid binary" >&2
+            print_error "Downloaded ${binary_name} file is not a valid binary" >&2
             rm -f "$temp_file"
             
             # Check if this architecture is available
-            print_warning "Binary for ${arch} might not be available" >&2
+            print_warning "Binary ${binary_name} for ${arch} might not be available" >&2
             print_info "Available binaries:" >&2
             curl -sSL "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${version}" | \
-                grep '"name"' | grep "hyprlax-" | sed 's/.*"hyprlax-/  - /' | sed 's/".*//' >&2
+                grep '"name"' | grep "hyprlax" | sed 's/.*"hyprlax/  - hyprlax/' | sed 's/".*//' >&2
             
             print_info "Please build from source: https://github.com/${GITHUB_REPO}" >&2
             exit 1
         fi
     else
-        print_error "Failed to download binary" >&2
+        print_error "Failed to download ${binary_name} binary" >&2
         print_info "URL attempted: $download_url" >&2
         exit 1
     fi
 }
 
 # Install binary
-install_binary() {
+install_single_binary() {
     local source_file="$1"
-    local binary_path=$(get_binary_path)
+    local binary_path="$2"
+    local binary_name="$3"
     local install_dir=$(dirname "$binary_path")
     
     # Create installation directory if needed
@@ -230,14 +250,29 @@ install_binary() {
     
     # Install the binary
     if [ "$INSTALL_TYPE" = "system" ]; then
-        print_step "Installing to $binary_path (requires sudo)..."
+        print_step "Installing ${binary_name} to $binary_path (requires sudo)..."
         sudo mv "$source_file" "$binary_path"
     else
-        print_step "Installing to $binary_path..."
+        print_step "Installing ${binary_name} to $binary_path..."
         mv "$source_file" "$binary_path"
     fi
     
-    print_success "Installation complete"
+    print_success "${binary_name} installation complete"
+}
+
+# Install both binaries
+install_binaries() {
+    local hyprlax_file="$1"
+    local ctl_file="$2"
+    local hyprlax_path=$(get_hyprlax_path)
+    local ctl_path=$(get_ctl_path)
+    local install_dir=$(dirname "$hyprlax_path")
+    
+    # Install both binaries
+    install_single_binary "$hyprlax_file" "$hyprlax_path" "hyprlax"
+    install_single_binary "$ctl_file" "$ctl_path" "hyprlax-ctl"
+    
+    print_success "Both binaries installed successfully"
     
     # Check if directory is in PATH
     if [ "$INSTALL_TYPE" = "user" ] && [[ ":$PATH:" != *":$install_dir:"* ]]; then
@@ -325,25 +360,38 @@ main() {
         fi
     fi
     
-    # Download binary
-    BINARY_FILE=$(download_binary "$VERSION" "$ARCH")
+    # Download binaries
+    HYPRLAX_FILE=$(download_binary "$VERSION" "$ARCH" "hyprlax")
+    CTL_FILE=$(download_binary "$VERSION" "$ARCH" "hyprlax-ctl")
     
     # Backup existing installation
     if [ "$INSTALLED_VERSION" != "none" ]; then
-        local binary_path=$(get_binary_path)
-        if [ -f "$binary_path" ]; then
-            local backup_path="${binary_path}.backup.$(date +%Y%m%d_%H%M%S)"
-            print_step "Backing up existing binary..."
+        local hyprlax_path=$(get_hyprlax_path)
+        local ctl_path=$(get_ctl_path)
+        
+        if [ -f "$hyprlax_path" ]; then
+            local backup_path="${hyprlax_path}.backup.$(date +%Y%m%d_%H%M%S)"
+            print_step "Backing up existing hyprlax binary..."
             if [ "$INSTALL_TYPE" = "system" ]; then
-                sudo cp "$binary_path" "$backup_path"
+                sudo cp "$hyprlax_path" "$backup_path"
             else
-                cp "$binary_path" "$backup_path"
+                cp "$hyprlax_path" "$backup_path"
+            fi
+        fi
+        
+        if [ -f "$ctl_path" ]; then
+            local backup_path="${ctl_path}.backup.$(date +%Y%m%d_%H%M%S)"
+            print_step "Backing up existing hyprlax-ctl binary..."
+            if [ "$INSTALL_TYPE" = "system" ]; then
+                sudo cp "$ctl_path" "$backup_path"
+            else
+                cp "$ctl_path" "$backup_path"
             fi
         fi
     fi
     
-    # Install the binary
-    install_binary "$BINARY_FILE"
+    # Install both binaries
+    install_binaries "$HYPRLAX_FILE" "$CTL_FILE"
     
     # Restart if it was running
     if [ -n "$WALLPAPER_PATH" ] && [ -f "$WALLPAPER_PATH" ]; then
@@ -363,20 +411,20 @@ main() {
     echo
     
     if [ "$INSTALLED_VERSION" = "none" ]; then
-        print_info "hyprlax $VERSION_NUM has been installed"
+        print_info "hyprlax and hyprlax-ctl $VERSION_NUM have been installed"
         echo
         print_info "To get started:"
         print_step "1. Add to your Hyprland config:"
         echo "      exec-once = hyprlax /path/to/wallpaper.jpg"
         print_step "2. Reload Hyprland or logout/login"
     else
-        print_success "hyprlax has been updated to $VERSION_NUM"
+        print_success "hyprlax and hyprlax-ctl have been updated to $VERSION_NUM"
     fi
     
     echo
     print_info "For more information:"
     print_step "GitHub: https://github.com/${GITHUB_REPO}"
-    print_step "Usage: hyprlax --help"
+    print_step "Usage: hyprlax --help, hyprlax-ctl --help"
 }
 
 # Run main function

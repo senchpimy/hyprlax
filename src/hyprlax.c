@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define HYPRLAX_VERSION "1.2.4"
+#define HYPRLAX_VERSION "1.3.0"
 #define INITIAL_MAX_LAYERS 8
 #define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
 #define BLUR_SHADER_MAX_SIZE 2048 // Maximum size for dynamically built shader
@@ -35,6 +35,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include "ipc.h"
+
 // Easing functions
 typedef enum {
     EASE_LINEAR,
@@ -57,12 +59,12 @@ struct layer {
     float shift_multiplier;  // How much this layer moves relative to base (0.0 = static, 1.0 = normal, 2.0 = double)
     float opacity;           // Layer opacity (0.0 - 1.0)
     char *image_path;
-    
+
     // Per-layer animation state
     float current_offset;
     float target_offset;
     float start_offset;
-    
+
     // Phase 3: Advanced per-layer settings
     easing_type_t easing;    // Per-layer easing function
     float animation_delay;   // Per-layer animation delay
@@ -110,7 +112,7 @@ struct {
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
     struct wl_callback *frame_callback;
-    
+
     // EGL/OpenGL
     struct wl_egl_window *egl_window;
     EGLDisplay egl_display;
@@ -120,29 +122,29 @@ struct {
     GLuint shader_program;
     GLuint blur_shader_program;  // Blur shader for depth effects
     GLuint vbo, ebo;
-    
+
     // Standard shader uniforms
     GLint u_opacity;  // Uniform location for opacity
     GLint u_texture;  // Uniform location for texture
-    
+
     // Blur shader uniforms
     GLint blur_u_texture;  // Uniform location for texture in blur shader
     GLint blur_u_opacity;  // Uniform location for opacity in blur shader
     GLint blur_u_blur_amount;  // Uniform location for blur amount
     GLint blur_u_resolution;  // Uniform location for resolution
-    
+
     // Window dimensions
     int width, height;
     int configured;  // Track if we've received initial configuration
-    
+
     // Image data (for single layer mode)
     int img_width, img_height;
-    
+
     // Multi-layer support
     struct layer *layers;
     int layer_count;
     int max_layers;
-    
+
     // Animation state
     float current_offset;
     float target_offset;
@@ -151,15 +153,18 @@ struct {
     int animating;
     int current_workspace;
     int previous_workspace;  // Track previous workspace to detect actual changes
-    
+
     // Performance tracking
     double last_frame_time;
     int frame_count;
     double fps_timer;
-    
+
     // Hyprland IPC
     int ipc_fd;
-    
+
+    // hyprlax IPC for dynamic layer management
+    ipc_context_t *ipc_ctx;
+
     // Running state
     int running;
 } state = {0};
@@ -169,39 +174,39 @@ float apply_easing(float t, easing_type_t type) {
     switch (type) {
         case EASE_LINEAR:
             return t;
-        
+
         case EASE_QUAD_OUT:
             return 1.0f - (1.0f - t) * (1.0f - t);
-        
+
         case EASE_CUBIC_OUT:
             return 1.0f - powf(1.0f - t, 3.0f);
-        
+
         case EASE_QUART_OUT:
             return 1.0f - powf(1.0f - t, 4.0f);
-        
+
         case EASE_QUINT_OUT:
             return 1.0f - powf(1.0f - t, 5.0f);
-        
+
         case EASE_SINE_OUT:
             return sinf((t * M_PI) / 2.0f);
-        
+
         case EASE_EXPO_OUT:
             return t == 1.0f ? 1.0f : 1.0f - powf(2.0f, -10.0f * t);
-        
+
         case EASE_CIRC_OUT:
             return sqrtf(1.0f - powf(t - 1.0f, 2.0f));
-        
+
         case EASE_BACK_OUT: {
             float c1 = 1.70158f;
             float c3 = c1 + 1.0f;
             return 1.0f + c3 * powf(t - 1.0f, 3.0f) + c1 * powf(t - 1.0f, 2.0f);
         }
-        
+
         case EASE_ELASTIC_OUT: {
             float c4 = (2.0f * M_PI) / 3.0f;
             return t == 0 ? 0 : t == 1 ? 1 : powf(2.0f, -10.0f * t) * sinf((t * 10.0f - 0.75f) * c4) + 1.0f;
         }
-        
+
         case EASE_CUSTOM_SNAP: {
             // Custom extra snappy easing - fast start, very quick deceleration at the end
             if (t < 0.4f) {
@@ -212,14 +217,14 @@ float apply_easing(float t, easing_type_t type) {
                 return 1.0f - powf(1.0f - t, 8.0f);
             }
         }
-        
+
         default:
             return t;
     }
 }
 
 // Shader sources with better precision
-const char *vertex_shader_src = 
+const char *vertex_shader_src =
     "precision highp float;\n"
     "attribute vec2 position;\n"
     "attribute vec2 texcoord;\n"
@@ -229,7 +234,7 @@ const char *vertex_shader_src =
     "    v_texcoord = texcoord;\n"
     "}\n";
 
-const char *fragment_shader_src = 
+const char *fragment_shader_src =
     "precision highp float;\n"
     "varying vec2 v_texcoord;\n"
     "uniform sampler2D u_texture;\n"
@@ -250,7 +255,7 @@ char *build_blur_shader() {
         fprintf(stderr, "Failed to allocate memory for blur shader\n");
         return NULL;
     }
-    
+
     int written = snprintf(shader, BLUR_SHADER_MAX_SIZE,
         "precision highp float;\n"
         "varying vec2 v_texcoord;\n"
@@ -286,22 +291,22 @@ char *build_blur_shader() {
         "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
         "}\n",
         BLUR_MIN_THRESHOLD, BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
-    
+
     // Check if formatting failed first
     if (written < 0) {
         fprintf(stderr, "Error: Blur shader formatting failed\n");
         free(shader);
         return NULL;
     }
-    
+
     // Check if the shader was truncated
     if (written >= BLUR_SHADER_MAX_SIZE) {
-        fprintf(stderr, "Error: Blur shader source too large (needed %d bytes, have %d)\n", 
+        fprintf(stderr, "Error: Blur shader source too large (needed %d bytes, have %d)\n",
                 written, BLUR_SHADER_MAX_SIZE);
         free(shader);
         return NULL;
     }
-    
+
     return shader;
 }
 
@@ -317,7 +322,7 @@ GLuint compile_shader(GLenum type, const char *source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, NULL);
     glCompileShader(shader);
-    
+
     GLint status;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
     if (!status) {
@@ -327,7 +332,7 @@ GLuint compile_shader(GLenum type, const char *source) {
         glDeleteShader(shader);
         return 0;
     }
-    
+
     return shader;
 }
 
@@ -336,49 +341,49 @@ int init_gl() {
     // Create standard shader program
     GLuint vertex_shader = compile_shader(GL_VERTEX_SHADER, vertex_shader_src);
     GLuint fragment_shader = compile_shader(GL_FRAGMENT_SHADER, fragment_shader_src);
-    
+
     if (!vertex_shader || !fragment_shader) return -1;
-    
+
     state.shader_program = glCreateProgram();
     glAttachShader(state.shader_program, vertex_shader);
     glAttachShader(state.shader_program, fragment_shader);
     glLinkProgram(state.shader_program);
-    
+
     GLint status;
     glGetProgramiv(state.shader_program, GL_LINK_STATUS, &status);
     if (!status) {
         fprintf(stderr, "Shader linking failed\n");
         return -1;
     }
-    
+
     // Create blur shader program with dynamic constants
     char *blur_shader_src = build_blur_shader();
     if (!blur_shader_src) {
         fprintf(stderr, "Failed to build blur shader\n");
         return -1;
     }
-    
+
     GLuint blur_fragment = compile_shader(GL_FRAGMENT_SHADER, blur_shader_src);
     free(blur_shader_src);  // Free the dynamically built shader
     if (!blur_fragment) return -1;
-    
+
     state.blur_shader_program = glCreateProgram();
     glAttachShader(state.blur_shader_program, vertex_shader);
     glAttachShader(state.blur_shader_program, blur_fragment);
     glLinkProgram(state.blur_shader_program);
-    
+
     glGetProgramiv(state.blur_shader_program, GL_LINK_STATUS, &status);
     if (!status) {
         fprintf(stderr, "Blur shader linking failed\n");
         return -1;
     }
-    
+
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
     glDeleteShader(blur_fragment);
-    
+
     glUseProgram(state.shader_program);
-    
+
     // Get uniform locations for standard shader with error checking
     state.u_texture = glGetUniformLocation(state.shader_program, "u_texture");
     if (state.u_texture == -1) {
@@ -388,7 +393,7 @@ int init_gl() {
     if (state.u_opacity == -1) {
         fprintf(stderr, "Warning: Failed to find uniform 'u_opacity' in standard shader\n");
     }
-    
+
     // Get uniform locations for blur shader with error checking
     glUseProgram(state.blur_shader_program);
     state.blur_u_texture = glGetUniformLocation(state.blur_shader_program, "u_texture");
@@ -407,23 +412,23 @@ int init_gl() {
     if (state.blur_u_resolution == -1) {
         fprintf(stderr, "Warning: Failed to find uniform 'u_resolution' in blur shader\n");
     }
-    
+
     // Switch back to standard shader
     glUseProgram(state.shader_program);
-    
+
     // Create VBO and EBO for better performance
     glGenBuffers(1, &state.vbo);
     glGenBuffers(1, &state.ebo);
-    
+
     // Set up static index buffer
     GLushort indices[] = {0, 1, 2, 0, 2, 3};
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    
+
     // Disable depth testing and blending for better performance
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
-    
+
     return 0;
 }
 
@@ -435,43 +440,43 @@ int load_image(const char *path) {
         fprintf(stderr, "Failed to load image '%s': %s\n", path, stbi_failure_reason());
         return -1;
     }
-    
+
     glGenTextures(1, &state.texture);
     glBindTexture(GL_TEXTURE_2D, state.texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, state.img_width, state.img_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    
+
     // Use trilinear filtering for smoother animation
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    
+
     // Calculate proper scale factor based on max workspaces and shift distance
     // Scale factor determines how much larger the image is than the viewport
     // We need: image_width = viewport_width * scale_factor
     // And: (scale_factor - 1) * viewport_width >= total_shift_needed
     int max_workspaces = 10;
     float total_shift_needed = (max_workspaces - 1) * config.shift_per_workspace;
-    
+
     // Initialize state.width if not set (use default screen width)
     if (state.width == 0) {
         state.width = 1920;  // Default, will be updated when surface is configured
     }
-    
+
     float min_scale_factor = 1.0f + (total_shift_needed / (float)state.width);
-    
+
     // Use the larger of the configured scale or the minimum required
     if (config.scale_factor < min_scale_factor) {
         config.scale_factor = min_scale_factor;
         if (config.debug) {
-            printf("Adjusted scale factor to %.2f to accommodate %d workspaces with %.0fpx shifts\n", 
+            printf("Adjusted scale factor to %.2f to accommodate %d workspaces with %.0fpx shifts\n",
                    config.scale_factor, max_workspaces, config.shift_per_workspace);
         }
     }
-    
+
     stbi_image_free(data);
-    
+
     return 0;
 }
 
@@ -483,18 +488,18 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
         fprintf(stderr, "Failed to load layer image '%s': %s\n", path, stbi_failure_reason());
         return -1;
     }
-    
+
     glGenTextures(1, &layer->texture);
     glBindTexture(GL_TEXTURE_2D, layer->texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, layer->width, layer->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-    
+
     // Use trilinear filtering for smoother animation
     glGenerateMipmap(GL_TEXTURE_2D);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    
+
     layer->shift_multiplier = shift_multiplier;
     layer->opacity = opacity;
     layer->image_path = strdup(path);
@@ -506,7 +511,7 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     layer->current_offset = 0.0f;
     layer->target_offset = 0.0f;
     layer->start_offset = 0.0f;
-    
+
     // Initialize Phase 3 fields with defaults
     layer->easing = config.easing;  // Use global easing by default
     layer->animation_delay = 0.0f;  // Can be overridden per layer
@@ -514,15 +519,96 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     layer->animation_start = 0.0;
     layer->animating = 0;
     layer->blur_amount = 0.0f;
-    
+
     stbi_image_free(data);
-    
+
     if (config.debug) {
-        printf("Loaded layer: %s (%.0fx%.0f) shift=%.2f opacity=%.2f\n", 
+        printf("Loaded layer: %s (%.0fx%.0f) shift=%.2f opacity=%.2f\n",
                path, (float)layer->width, (float)layer->height, shift_multiplier, opacity);
     }
-    
+
     return 0;
+}
+
+// Sync IPC layers with OpenGL textures
+void sync_ipc_layers() {
+    if (!state.ipc_ctx) return;
+
+    // First, mark all current layers for potential removal
+    for (int i = 0; i < state.layer_count; i++) {
+        if (state.layers[i].image_path) {
+            state.layers[i].opacity = -1.0f; // Mark for removal
+        }
+    }
+
+    // Process IPC layers
+    for (int i = 0; i < state.ipc_ctx->layer_count; i++) {
+        layer_t* ipc_layer = state.ipc_ctx->layers[i];
+        if (!ipc_layer || !ipc_layer->visible) continue;
+
+        // Find existing layer with same path
+        struct layer* existing = NULL;
+        for (int j = 0; j < state.layer_count; j++) {
+            if (state.layers[j].image_path &&
+                strcmp(state.layers[j].image_path, ipc_layer->image_path) == 0) {
+                existing = &state.layers[j];
+                break;
+            }
+        }
+
+        if (existing) {
+            // Update existing layer
+            existing->opacity = ipc_layer->opacity;
+            existing->shift_multiplier = ipc_layer->scale;
+            // TODO: Apply x/y offsets when rendering
+        } else {
+            // Add new layer
+            if (state.layer_count >= state.max_layers) {
+                // Expand layer array
+                int new_max = state.max_layers * 2;
+                struct layer* new_layers = realloc(state.layers, sizeof(struct layer) * new_max);
+                if (new_layers) {
+                    state.layers = new_layers;
+                    state.max_layers = new_max;
+                    memset(&state.layers[state.layer_count], 0,
+                           sizeof(struct layer) * (new_max - state.layer_count));
+                }
+            }
+
+            if (state.layer_count < state.max_layers) {
+                struct layer* new_layer = &state.layers[state.layer_count];
+                if (load_layer(new_layer, ipc_layer->image_path,
+                              ipc_layer->scale, ipc_layer->opacity) == 0) {
+                    new_layer->image_path = strdup(ipc_layer->image_path);
+                    state.layer_count++;
+                }
+            }
+        }
+    }
+
+    // Remove layers that are no longer in IPC
+    int write_idx = 0;
+    for (int read_idx = 0; read_idx < state.layer_count; read_idx++) {
+        if (state.layers[read_idx].opacity >= 0.0f) {
+            // Keep this layer
+            if (write_idx != read_idx) {
+                state.layers[write_idx] = state.layers[read_idx];
+            }
+            write_idx++;
+        } else {
+            // Remove this layer
+            if (state.layers[read_idx].texture) {
+                glDeleteTextures(1, &state.layers[read_idx].texture);
+            }
+            if (state.layers[read_idx].image_path) {
+                free(state.layers[read_idx].image_path);
+            }
+        }
+    }
+    state.layer_count = write_idx;
+
+    // Sort layers by z-index (using shift_multiplier as z-index for now)
+    // TODO: Add proper z-index field to struct layer
 }
 
 // Add a layer to the state
@@ -535,13 +621,13 @@ int add_layer(const char *path, float shift_multiplier, float opacity) {
             return -1;
         }
         int new_max = state.max_layers * 2;
-        
+
         // Check multiplication overflow for size calculation
         if (new_max > SIZE_MAX / sizeof(struct layer)) {
             fprintf(stderr, "Error: Layer array size would exceed memory limits\n");
             return -1;
         }
-        
+
         struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
         if (!new_layers) {
             fprintf(stderr, "Failed to allocate memory for %d layers\n", new_max);
@@ -552,13 +638,13 @@ int add_layer(const char *path, float shift_multiplier, float opacity) {
         state.layers = new_layers;
         state.max_layers = new_max;
     }
-    
+
     struct layer *layer = &state.layers[state.layer_count];
     if (load_layer(layer, path, shift_multiplier, opacity) == 0) {
         state.layer_count++;
         return 0;
     }
-    
+
     return -1;
 }
 
@@ -571,7 +657,7 @@ static void frame_done(void *data, struct wl_callback *callback, uint32_t time) 
     (void)time;
     if (callback) wl_callback_destroy(callback);
     state.frame_callback = NULL;
-    
+
     // Render the next frame
     render_frame();
 }
@@ -583,26 +669,26 @@ static const struct wl_callback_listener frame_listener = {
 // Render frame with optimizations
 void render_frame() {
     double current_time = get_time();
-    
+
     // Update animation for all layers
     if (config.multi_layer_mode) {
         // Per-layer animation with individual timing
         int any_animating = 0;
         for (int i = 0; i < state.layer_count; i++) {
             struct layer *layer = &state.layers[i];
-            
+
             if (layer->animating) {
                 double elapsed = current_time - layer->animation_start;
-                
+
                 // Check if we're still in delay period
                 if (elapsed < layer->animation_delay) {
                     any_animating = 1;
                     continue;
                 }
-                
+
                 // Adjust elapsed time for delay
                 elapsed -= layer->animation_delay;
-                
+
                 if (elapsed >= layer->animation_duration) {
                     // This layer's animation is complete
                     layer->current_offset = layer->target_offset;
@@ -610,7 +696,7 @@ void render_frame() {
                 } else {
                     float t = elapsed / layer->animation_duration;
                     float eased = apply_easing(t, layer->easing);
-                    layer->current_offset = layer->start_offset + 
+                    layer->current_offset = layer->start_offset +
                         (layer->target_offset - layer->start_offset) * eased;
                     any_animating = 1;
                 }
@@ -621,52 +707,52 @@ void render_frame() {
         // Single layer mode (backward compatible)
         if (state.animating) {
             double elapsed = current_time - state.animation_start;
-            
+
             if (elapsed >= config.animation_duration) {
                 state.current_offset = state.target_offset;
                 state.animating = 0;
             } else {
                 float t = elapsed / config.animation_duration;
                 float eased = apply_easing(t, config.easing);
-                state.current_offset = state.start_offset + 
+                state.current_offset = state.start_offset +
                     (state.target_offset - state.start_offset) * eased;
             }
         }
     }
-    
+
     // Clear
     glClear(GL_COLOR_BUFFER_BIT);
-    
+
     // Enable blending for multi-layer mode
     if (config.multi_layer_mode && state.layer_count > 1) {
         glEnable(GL_BLEND);
         // Use blend function for premultiplied alpha
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     }
-    
+
     // Get attribute locations once
     GLint pos_attrib = glGetAttribLocation(state.shader_program, "position");
     GLint tex_attrib = glGetAttribLocation(state.shader_program, "texcoord");
-    
+
     if (config.multi_layer_mode) {
         // Render each layer
         for (int i = 0; i < state.layer_count; i++) {
             struct layer *layer = &state.layers[i];
-            
+
             // Calculate layer-specific texture offset
             float viewport_width_in_texture = 1.0f / config.scale_factor;
             float max_texture_offset = 1.0f - viewport_width_in_texture;
             float max_pixel_offset = (config.scale_factor - 1.0f) * state.width;
             float tex_offset = 0.0f;
-            
+
             if (max_pixel_offset > 0) {
                 tex_offset = (layer->current_offset / max_pixel_offset) * max_texture_offset;
             }
-            
+
             // Clamp to valid range
             if (tex_offset > max_texture_offset) tex_offset = max_texture_offset;
             if (tex_offset < 0.0f) tex_offset = 0.0f;
-            
+
             // Update vertex buffer for this layer
             float vertices[] = {
                 -1.0f, -1.0f,  tex_offset, 1.0f,
@@ -674,20 +760,20 @@ void render_frame() {
                  1.0f,  1.0f,  tex_offset + viewport_width_in_texture, 0.0f,
                 -1.0f,  1.0f,  tex_offset, 0.0f,
             };
-            
+
             glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
             glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
-            
+
             // Set up vertex attributes
             glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
             glEnableVertexAttribArray(pos_attrib);
             glVertexAttribPointer(tex_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
             glEnableVertexAttribArray(tex_attrib);
-            
+
             // Select shader based on blur amount
             if (layer->blur_amount > BLUR_MIN_THRESHOLD) {
                 glUseProgram(state.blur_shader_program);
-                
+
                 // Bind layer texture and set uniforms using pre-cached locations
                 glBindTexture(GL_TEXTURE_2D, layer->texture);
                 glUniform1i(state.blur_u_texture, 0);
@@ -696,13 +782,13 @@ void render_frame() {
                 glUniform2f(state.blur_u_resolution, (float)state.width, (float)state.height);
             } else {
                 glUseProgram(state.shader_program);
-                
+
                 // Bind layer texture and set uniforms
                 glBindTexture(GL_TEXTURE_2D, layer->texture);
                 glUniform1i(state.u_texture, 0);
                 glUniform1f(state.u_opacity, layer->opacity);
             }
-            
+
             // Draw layer
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
@@ -713,38 +799,38 @@ void render_frame() {
         float max_texture_offset = 1.0f - viewport_width_in_texture;
         float max_pixel_offset = (config.scale_factor - 1.0f) * state.width;
         float tex_offset = 0.0f;
-        
+
         if (max_pixel_offset > 0) {
             tex_offset = (state.current_offset / max_pixel_offset) * max_texture_offset;
         }
-        
+
         if (tex_offset > max_texture_offset) tex_offset = max_texture_offset;
         if (tex_offset < 0.0f) tex_offset = 0.0f;
-        
+
         float vertices[] = {
             -1.0f, -1.0f,  tex_offset, 1.0f,
              1.0f, -1.0f,  tex_offset + viewport_width_in_texture, 1.0f,
              1.0f,  1.0f,  tex_offset + viewport_width_in_texture, 0.0f,
             -1.0f,  1.0f,  tex_offset, 0.0f,
         };
-        
+
         glBindBuffer(GL_ARRAY_BUFFER, state.vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
-        
+
         glVertexAttribPointer(pos_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(pos_attrib);
         glVertexAttribPointer(tex_attrib, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
         glEnableVertexAttribArray(tex_attrib);
-        
+
         // Bind single texture
         glBindTexture(GL_TEXTURE_2D, state.texture);
         glUniform1i(state.u_texture, 0);
         glUniform1f(state.u_opacity, 1.0f);
-        
+
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.ebo);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
     }
-    
+
     // Swap buffers with vsync control
     if (config.vsync) {
         eglSwapInterval(state.egl_display, 1);
@@ -752,7 +838,7 @@ void render_frame() {
         eglSwapInterval(state.egl_display, 0);
     }
     eglSwapBuffers(state.egl_display, state.egl_surface);
-    
+
     // FPS tracking for debug
     if (config.debug) {
         state.frame_count++;
@@ -762,14 +848,14 @@ void render_frame() {
             state.fps_timer = current_time;
         }
     }
-    
+
     // Request next frame if animating
     if (state.animating && !state.frame_callback) {
         state.frame_callback = wl_surface_frame(state.surface);
         wl_callback_add_listener(state.frame_callback, &frame_listener, NULL);
         wl_surface_commit(state.surface);
     }
-    
+
     state.last_frame_time = current_time;
 }
 
@@ -779,46 +865,46 @@ int detect_max_workspaces() {
     // This avoids shell injection vulnerabilities
     int pipefd[2];
     pid_t pid;
-    
+
     if (pipe(pipefd) == -1) {
         return 10; // Default fallback
     }
-    
+
     pid = fork();
     if (pid == -1) {
         close(pipefd[0]);
         close(pipefd[1]);
         return 10; // Default fallback
     }
-    
+
     if (pid == 0) {
         // Child process
         close(pipefd[0]); // Close read end
         dup2(pipefd[1], STDOUT_FILENO);
         dup2(pipefd[1], STDERR_FILENO);
         close(pipefd[1]);
-        
+
         // Execute hyprctl directly without shell
         char *args[] = {"hyprctl", "workspaces", NULL};
         execvp("hyprctl", args);
-        
+
         // If exec fails, exit child
         _exit(1);
     }
-    
+
     // Parent process
     close(pipefd[1]); // Close write end
-    
+
     FILE *fp = fdopen(pipefd[0], "r");
     if (!fp) {
         close(pipefd[0]);
         waitpid(pid, NULL, 0);
         return 10;
     }
-    
+
     char buffer[256];
     int max_ws = 0;
-    
+
     // Parse the output looking for workspace IDs
     while (fgets(buffer, sizeof(buffer), fp)) {
         // Look for lines like "workspace ID X"
@@ -834,7 +920,7 @@ int detect_max_workspaces() {
     }
     fclose(fp);
     waitpid(pid, NULL, 0);
-    
+
     if (max_ws > 0) {
         // If we only see workspaces up to 5, assume 10 (common default)
         if (max_ws <= 5) {
@@ -845,43 +931,43 @@ int detect_max_workspaces() {
         }
         return max_ws;
     }
-    
+
     // Try to check bindings as fallback (simpler parsing)
     if (pipe(pipefd) == -1) {
         return 10;
     }
-    
+
     pid = fork();
     if (pid == -1) {
         close(pipefd[0]);
         close(pipefd[1]);
         return 10;
     }
-    
+
     if (pid == 0) {
         // Child process
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         dup2(pipefd[1], STDERR_FILENO);
         close(pipefd[1]);
-        
+
         char *args[] = {"hyprctl", "binds", NULL};
         execvp("hyprctl", args);
         _exit(1);
     }
-    
+
     // Parent process
     close(pipefd[1]);
-    
+
     fp = fdopen(pipefd[0], "r");
     if (!fp) {
         close(pipefd[0]);
         waitpid(pid, NULL, 0);
         return 10;
     }
-    
+
     max_ws = 0;
-    
+
     // Look for workspace bindings
     while (fgets(buffer, sizeof(buffer), fp)) {
         // Look for lines containing "workspace,"
@@ -898,14 +984,14 @@ int detect_max_workspaces() {
         }
         fclose(fp);
         waitpid(pid, NULL, 0);
-        
+
         if (max_ws > 0) {
             if (config.debug) {
                 printf("Detected max workspace from bindings: %d\n", max_ws);
             }
             return max_ws;
         }
-    
+
     // Default to 10 workspaces if we can't detect
     if (config.debug) {
         printf("Could not detect max workspaces, defaulting to 10\n");
@@ -920,30 +1006,30 @@ int connect_hyprland_ipc() {
         fprintf(stderr, "Not running under Hyprland\n");
         return -1;
     }
-    
+
     const char *runtime_dir = getenv("XDG_RUNTIME_DIR");
     if (!runtime_dir) {
         runtime_dir = "/run/user/1000";
     }
-    
+
     char socket_path[256];
     snprintf(socket_path, sizeof(socket_path), "%s/hypr/%s/.socket2.sock", runtime_dir, sig);
-    
+
     state.ipc_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (state.ipc_fd < 0) return -1;
-    
+
     struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
-    
+
     if (connect(state.ipc_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         close(state.ipc_fd);
         return -1;
     }
-    
+
     // Make non-blocking
     fcntl(state.ipc_fd, F_SETFL, O_NONBLOCK);
-    
+
     return 0;
 }
 
@@ -951,16 +1037,16 @@ int connect_hyprland_ipc() {
 void process_ipc_events() {
     char buffer[1024];
     ssize_t n = read(state.ipc_fd, buffer, sizeof(buffer) - 1);
-    
+
     if (n > 0) {
         buffer[n] = '\0';
-        
+
         // Parse workspace events
         char *line = strtok(buffer, "\n");
         while (line) {
             if (strncmp(line, "workspace>>", 11) == 0) {
                 int workspace = atoi(line + 11);
-                
+
                 // Only animate if this is a real workspace change
                 if (workspace != state.current_workspace && workspace > 0) {
                     // Don't animate if we're going beyond configured workspace boundaries
@@ -975,23 +1061,23 @@ void process_ipc_events() {
                     if (config.multi_layer_mode) {
                         // Multi-layer mode: update each layer's animation state
                         double now = get_time();
-                        
+
                         // Set new targets for each layer with individual timing
                         float base_target = (workspace - 1) * config.shift_per_workspace;
                         for (int i = 0; i < state.layer_count; i++) {
                             struct layer *layer = &state.layers[i];
-                            
+
                             // If currently animating, update current position
                             if (layer->animating) {
                                 double elapsed = now - layer->animation_start - layer->animation_delay;
                                 if (elapsed > 0) {
                                     float t = fminf(elapsed / layer->animation_duration, 1.0f);
                                     float eased = apply_easing(t, layer->easing);
-                                    layer->current_offset = layer->start_offset + 
+                                    layer->current_offset = layer->start_offset +
                                         (layer->target_offset - layer->start_offset) * eased;
                                 }
                             }
-                            
+
                             // Set new animation parameters
                             layer->start_offset = layer->current_offset;
                             layer->target_offset = base_target * layer->shift_multiplier;
@@ -1006,21 +1092,21 @@ void process_ipc_events() {
                             float eased = apply_easing(t, config.easing);
                             state.current_offset = state.start_offset + (state.target_offset - state.start_offset) * eased;
                         }
-                        
+
                         state.start_offset = state.current_offset;
                         state.target_offset = (workspace - 1) * config.shift_per_workspace;
                     }
-                    
+
                     state.animation_start = get_time() + config.animation_delay;
                     state.animating = 1;
                     state.previous_workspace = state.current_workspace;  // Track the previous workspace
                     state.current_workspace = workspace;
-                    
+
                     if (config.debug) {
-                        printf("Workspace changed to %d (offset: %.2f -> %.2f)\n", 
+                        printf("Workspace changed to %d (offset: %.2f -> %.2f)\n",
                                workspace, state.start_offset, state.target_offset);
                     }
-                    
+
                     // Request frame
                     if (!state.frame_callback) {
                         state.frame_callback = wl_surface_frame(state.surface);
@@ -1040,16 +1126,16 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *la
     state.width = width;
     state.height = height;
     state.configured = 1;  // Mark as configured
-    
+
     zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
-    
+
     if (state.egl_window) {
         wl_egl_window_resize(state.egl_window, width, height, 0, 0);
     }
-    
+
     glViewport(0, 0, width, height);
     render_frame();
-    
+
     // Commit the surface to display the rendered frame
     wl_surface_commit(state.surface);
     wl_display_flush(state.display);
@@ -1129,12 +1215,12 @@ static int is_sensitive_path(const char *resolved_path) {
         "/etc", "/sys", "/proc", "/dev",
         "/boot", "/root", NULL
     };
-    
+
     for (int i = 0; sensitive_dirs[i]; i++) {
         size_t dir_len = strlen(sensitive_dirs[i]);
         if (strncmp(resolved_path, sensitive_dirs[i], dir_len) == 0 &&
             (resolved_path[dir_len] == '/' || resolved_path[dir_len] == '\0')) {
-            fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n", 
+            fprintf(stderr, "Error: Path validation failed - access to sensitive directory '%s' denied\n",
                     sensitive_dirs[i]);
             return 1;
         }
@@ -1149,16 +1235,16 @@ static char *resolve_nonexistent_path(const char *path) {
         fprintf(stderr, "Error: Path validation failed - memory allocation error\n");
         return NULL;
     }
-    
+
     char *dir = dirname(path_copy);
     char *resolved_dir = realpath(dir, NULL);
-    
+
     if (!resolved_dir) {
         fprintf(stderr, "Error: Path validation failed - parent directory '%s' does not exist\n", dir);
         free(path_copy);
         return NULL;
     }
-    
+
     // Construct the resolved path
     char *base = basename((char *)path);
     size_t path_len = strlen(resolved_dir) + strlen(base) + 2;
@@ -1169,11 +1255,11 @@ static char *resolve_nonexistent_path(const char *path) {
         free(path_copy);
         return NULL;
     }
-    
+
     snprintf(resolved_path, path_len, "%s/%s", resolved_dir, base);
     free(resolved_dir);
     free(path_copy);
-    
+
     return resolved_path;
 }
 
@@ -1183,10 +1269,10 @@ int validate_path(const char *path) {
         fprintf(stderr, "Error: Path validation failed - NULL path provided\n");
         return 0;
     }
-    
+
     // Try to resolve the path directly
     char *resolved_path = realpath(path, NULL);
-    
+
     // If file doesn't exist, resolve parent directory
     if (!resolved_path) {
         resolved_path = resolve_nonexistent_path(path);
@@ -1194,10 +1280,10 @@ int validate_path(const char *path) {
             return 0;
         }
     }
-    
+
     // Check for sensitive directories
     int is_valid = !is_sensitive_path(resolved_path);
-    
+
     free(resolved_path);
     return is_valid;
 }
@@ -1205,21 +1291,21 @@ int validate_path(const char *path) {
 // Resolve path relative to config file directory
 char* resolve_config_relative_path(const char *path) {
     if (!path) return NULL;
-    
+
     // If path is already absolute, return a copy
     if (path[0] == '/') {
         return strdup(path);
     }
-    
+
     // If no config file path stored, treat as relative to current directory
     if (!config.config_file_path) {
         return strdup(path);
     }
-    
+
     // Get directory of config file
     char *config_dir = strdup(config.config_file_path);
     if (!config_dir) return NULL;
-    
+
     char *last_slash = strrchr(config_dir, '/');
     if (last_slash) {
         *last_slash = '\0';  // Terminate at last slash to get directory
@@ -1228,7 +1314,7 @@ char* resolve_config_relative_path(const char *path) {
         free(config_dir);
         return strdup(path);
     }
-    
+
     // Build full path
     size_t dir_len = strlen(config_dir);
     size_t path_len = strlen(path);
@@ -1237,10 +1323,10 @@ char* resolve_config_relative_path(const char *path) {
         free(config_dir);
         return NULL;
     }
-    
+
     snprintf(full_path, dir_len + path_len + 2, "%s/%s", config_dir, path);
     free(config_dir);
-    
+
     return full_path;
 }
 
@@ -1251,7 +1337,7 @@ int parse_config_file(const char *filename) {
         fprintf(stderr, "Error: Invalid config file path: %s\n", filename);
         return -1;
     }
-    
+
     // Store the config file path (resolve to absolute path)
     char *resolved_config_path = realpath(filename, NULL);
     if (resolved_config_path) {
@@ -1266,24 +1352,24 @@ int parse_config_file(const char *filename) {
         }
         config.config_file_path = strdup(filename);
     }
-    
+
     FILE *file = fopen(filename, "r");
     if (!file) {
         fprintf(stderr, "Error: Cannot open config file: %s\n", filename);
         return -1;
     }
-    
+
     char line[MAX_CONFIG_LINE_SIZE];
     int line_num = 0;
-    
+
     while (fgets(line, MAX_CONFIG_LINE_SIZE, file)) {
         line_num++;
-        
+
         // Check if line was truncated (no newline found)
         if (!strchr(line, '\n')) {
             // Only report error if not at EOF (EOF without newline is acceptable)
             if (!feof(file)) {
-                fprintf(stderr, "Error: Line %d exceeds buffer size of %d characters\n", 
+                fprintf(stderr, "Error: Line %d exceeds buffer size of %d characters\n",
                         line_num, MAX_CONFIG_LINE_SIZE - 1);
                 // Skip rest of the line safely
                 int c;
@@ -1293,29 +1379,29 @@ int parse_config_file(const char *filename) {
                 continue;
             }
         }
-        
+
         // Skip comments and empty lines
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        
+
         // Remove newline
         char *newline = strchr(line, '\n');
         if (newline) *newline = '\0';
-        
+
         // Parse tokens
         char *cmd = strtok(line, " \t");
         if (!cmd) continue;
-        
+
         if (strcmp(cmd, "layer") == 0) {
             char *image = strtok(NULL, " \t");
             char *shift_str = strtok(NULL, " \t");
             char *opacity_str = strtok(NULL, " \t");
             char *blur_str = strtok(NULL, " \t");
-            
+
             if (!image) {
                 fprintf(stderr, "Config line %d: layer requires image path\n", line_num);
                 continue;
             }
-            
+
             // Resolve path relative to config file if needed
             char *resolved_image_path = resolve_config_relative_path(image);
             if (!resolved_image_path) {
@@ -1323,7 +1409,7 @@ int parse_config_file(const char *filename) {
                 fclose(file);
                 return -1;
             }
-            
+
             // Validate resolved image path
             if (!validate_path(resolved_image_path)) {
                 fprintf(stderr, "Error: Invalid image path at line %d: %s\n", line_num, resolved_image_path);
@@ -1331,11 +1417,11 @@ int parse_config_file(const char *filename) {
                 fclose(file);
                 return -1;
             }
-            
+
             float shift = shift_str ? atof(shift_str) : 1.0f;
             float opacity = opacity_str ? atof(opacity_str) : 1.0f;
             float blur = blur_str ? atof(blur_str) : 0.0f;
-            
+
             // Initialize layer array if needed
             if (!state.layers) {
                 state.max_layers = INITIAL_MAX_LAYERS;
@@ -1348,7 +1434,7 @@ int parse_config_file(const char *filename) {
                 state.layer_count = 0;
                 config.multi_layer_mode = 1;
             }
-            
+
             // Grow the layer array if needed
             if (state.layer_count >= state.max_layers) {
                 // Check for integer overflow and reasonable limits
@@ -1358,14 +1444,14 @@ int parse_config_file(const char *filename) {
                     return -1;
                 }
                 int new_max = state.max_layers * 2;
-                
+
                 // Check multiplication overflow for size calculation
                 if (new_max > SIZE_MAX / sizeof(struct layer)) {
                     fprintf(stderr, "Error: Layer array size would exceed memory limits at line %d\n", line_num);
                     fclose(file);
                     return -1;
                 }
-                
+
                 struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
                 if (!new_layers) {
                     fprintf(stderr, "Failed to allocate memory for %d layers at line %d\n", new_max, line_num);
@@ -1376,7 +1462,7 @@ int parse_config_file(const char *filename) {
                 state.layers = new_layers;
                 state.max_layers = new_max;
             }
-            
+
             if (state.layer_count < state.max_layers) {
                 struct layer *layer = &state.layers[state.layer_count];
                 layer->image_path = resolved_image_path;  // Use the resolved path directly
@@ -1413,7 +1499,7 @@ int parse_config_file(const char *filename) {
             }
         }
     }
-    
+
     fclose(file);
     return 0;
 }
@@ -1435,10 +1521,10 @@ int main(int argc, char *argv[]) {
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
-    
+
     int option_index = 0;
     int c;
-    
+
     while ((c = getopt_long(argc, argv, "s:d:e:f:v:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 's':
@@ -1485,16 +1571,16 @@ int main(int argc, char *argv[]) {
                     char *delay_str = strtok(NULL, ":");
                     char *duration_str = strtok(NULL, ":");
                     char *blur_str = strtok(NULL, ":");
-                    
+
                     if (!image) {
                         fprintf(stderr, "Error: Invalid layer specification: %s\n", optarg);
                         free(spec);
                         return 1;
                     }
-                    
+
                     float shift = shift_str ? atof(shift_str) : 1.0f;
                     float opacity = opacity_str ? atof(opacity_str) : 1.0f;
-                    
+
                     // Initialize layer array if needed
                     if (!state.layers) {
                         state.max_layers = INITIAL_MAX_LAYERS;
@@ -1507,7 +1593,7 @@ int main(int argc, char *argv[]) {
                         state.layer_count = 0;
                         config.multi_layer_mode = 1;
                     }
-                    
+
                     // Grow the layer array if needed
                     if (state.layer_count >= state.max_layers) {
                         // Check for integer overflow and reasonable limits
@@ -1517,14 +1603,14 @@ int main(int argc, char *argv[]) {
                             return 1;
                         }
                         int new_max = state.max_layers * 2;
-                        
+
                         // Check multiplication overflow for size calculation
                         if (new_max > SIZE_MAX / sizeof(struct layer)) {
                             fprintf(stderr, "Error: Layer array size would exceed memory limits\n");
                             free(spec);
                             return 1;
                         }
-                        
+
                         struct layer *new_layers = realloc(state.layers, new_max * sizeof(struct layer));
                         if (!new_layers) {
                             fprintf(stderr, "Error: Failed to allocate memory for %d layers\n", new_max);
@@ -1535,7 +1621,7 @@ int main(int argc, char *argv[]) {
                         state.layers = new_layers;
                         state.max_layers = new_max;
                     }
-                    
+
                     // Store layer info for later loading
                     if (state.layer_count < state.max_layers) {
                         struct layer *layer = &state.layers[state.layer_count];
@@ -1547,7 +1633,7 @@ int main(int argc, char *argv[]) {
                         }
                         layer->shift_multiplier = shift;
                         layer->opacity = opacity;
-                        
+
                         // Phase 3: Parse optional per-layer settings
                         layer->easing = config.easing;  // Default to global
                         if (easing_str) {
@@ -1563,14 +1649,14 @@ int main(int argc, char *argv[]) {
                             else if (strcmp(easing_str, "elastic") == 0) layer->easing = EASE_ELASTIC_OUT;
                             else if (strcmp(easing_str, "snap") == 0) layer->easing = EASE_CUSTOM_SNAP;
                         }
-                        
+
                         layer->animation_delay = delay_str ? atof(delay_str) : 0.0f;
                         layer->animation_duration = duration_str ? atof(duration_str) : config.animation_duration;
                         layer->blur_amount = blur_str ? atof(blur_str) : 0.0f;
-                        
+
                         state.layer_count++;
                     }
-                    
+
                     free(spec);
                 } else if (strcmp(long_options[option_index].name, "config") == 0) {
                     if (parse_config_file(optarg) < 0) {
@@ -1591,9 +1677,9 @@ int main(int argc, char *argv[]) {
                 return 1;
         }
     }
-    
+
     const char *image_path = NULL;
-    
+
     // Check if we have layers or a single image
     if (config.multi_layer_mode) {
         if (state.layer_count == 0) {
@@ -1610,16 +1696,16 @@ int main(int argc, char *argv[]) {
         }
         image_path = argv[optind];
     }
-    
+
     // Print config if debug
     if (config.debug) {
         printf("Configuration:\n");
         if (config.multi_layer_mode) {
             printf("  Mode: Multi-layer (%d layers)\n", state.layer_count);
             for (int i = 0; i < state.layer_count; i++) {
-                printf("    Layer %d: %s (shift=%.2f, opacity=%.2f, blur=%.2f)\n", 
-                       i, state.layers[i].image_path, 
-                       state.layers[i].shift_multiplier, 
+                printf("    Layer %d: %s (shift=%.2f, opacity=%.2f, blur=%.2f)\n",
+                       i, state.layers[i].image_path,
+                       state.layers[i].shift_multiplier,
                        state.layers[i].opacity,
                        state.layers[i].blur_amount);
             }
@@ -1633,32 +1719,32 @@ int main(int argc, char *argv[]) {
         printf("  VSync: %s\n", config.vsync ? "enabled" : "disabled");
         printf("  Target FPS: %d\n", config.target_fps);
     }
-    
+
     // Connect to Wayland
     state.display = wl_display_connect(NULL);
     if (!state.display) {
         fprintf(stderr, "Failed to connect to Wayland\n");
         return 1;
     }
-    
+
     // Get registry and bind interfaces
     state.registry = wl_display_get_registry(state.display);
     wl_registry_add_listener(state.registry, &registry_listener, NULL);
     wl_display_roundtrip(state.display);
-    
+
     if (!state.compositor || !state.layer_shell) {
         fprintf(stderr, "Missing required Wayland interfaces\n");
         return 1;
     }
-    
+
     // Create surface
     state.surface = wl_compositor_create_surface(state.compositor);
-    
+
     // Create layer surface
     state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(
         state.layer_shell, state.surface, state.output,
         ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, "hyprlax");
-    
+
     zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, NULL);
     zwlr_layer_surface_v1_set_exclusive_zone(state.layer_surface, -1);
     zwlr_layer_surface_v1_set_anchor(state.layer_surface,
@@ -1666,14 +1752,14 @@ int main(int argc, char *argv[]) {
         ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    
+
     wl_surface_commit(state.surface);
     wl_display_roundtrip(state.display);
-    
+
     // Initialize EGL
     state.egl_display = eglGetDisplay((EGLNativeDisplayType)state.display);
     eglInitialize(state.egl_display, NULL, NULL);
-    
+
     EGLint attributes[] = {
         EGL_RED_SIZE, 8,
         EGL_GREEN_SIZE, 8,
@@ -1681,31 +1767,31 @@ int main(int argc, char *argv[]) {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_NONE
     };
-    
+
     EGLConfig config_egl;
     EGLint num_configs;
     eglChooseConfig(state.egl_display, attributes, &config_egl, 1, &num_configs);
-    
+
     EGLint context_attribs[] = {
         EGL_CONTEXT_CLIENT_VERSION, 2,
         EGL_NONE
     };
-    
+
     state.egl_context = eglCreateContext(state.egl_display, config_egl, EGL_NO_CONTEXT, context_attribs);
-    
+
     // Create EGL window with initial dimensions (will be resized on configure)
     int initial_width = 1;
     int initial_height = 1;
     state.egl_window = wl_egl_window_create(state.surface, initial_width, initial_height);
     state.egl_surface = eglCreateWindowSurface(state.egl_display, config_egl, state.egl_window, NULL);
-    
+
     eglMakeCurrent(state.egl_display, state.egl_surface, state.egl_surface, state.egl_context);
-    
+
     // Initialize OpenGL
     if (init_gl() < 0) return 1;
-    
+
     // Don't set viewport yet - wait for configuration from compositor
-    
+
     // Load images
     if (config.multi_layer_mode) {
         // Load all layers
@@ -1723,51 +1809,66 @@ int main(int argc, char *argv[]) {
         // Load single image
         if (load_image(image_path) < 0) return 1;
     }
-    
+
     // Detect maximum number of workspaces
     config.max_workspaces = detect_max_workspaces();
     if (config.debug) {
         printf("Maximum workspaces detected: %d\n", config.max_workspaces);
     }
-    
+
     // Connect to Hyprland IPC
     if (connect_hyprland_ipc() < 0) {
         fprintf(stderr, "Warning: Failed to connect to Hyprland IPC\n");
     }
-    
+
+    // Initialize hyprlax IPC for dynamic layer management
+    state.ipc_ctx = ipc_init();
+    if (!state.ipc_ctx) {
+        fprintf(stderr, "Warning: Failed to initialize IPC for layer management\n");
+    }
+
     // Get initial workspace
     state.current_workspace = 1;
     state.previous_workspace = 1;
     state.current_offset = 0;
     state.target_offset = 0;
-    
+
     // Initialize timers
     state.last_frame_time = get_time();
     state.fps_timer = state.last_frame_time;
-    
+
     // Commit the surface to trigger configuration from compositor
     wl_surface_commit(state.surface);
     wl_display_flush(state.display);
-    
+
     // Wait for initial configuration before rendering
     while (!state.configured && state.running) {
         wl_display_dispatch(state.display);
     }
-    
+
     // Main loop
     state.running = 1;
-    
-    struct pollfd fds[2];
+
+    // Set up poll descriptors
+    int nfds = 2;
+    struct pollfd fds[3];
     fds[0].fd = wl_display_get_fd(state.display);
     fds[0].events = POLLIN;
     fds[1].fd = state.ipc_fd;
     fds[1].events = POLLIN;
-    
+
+    // Add our IPC socket if available
+    if (state.ipc_ctx && state.ipc_ctx->socket_fd >= 0) {
+        fds[2].fd = state.ipc_ctx->socket_fd;
+        fds[2].events = POLLIN;
+        nfds = 3;
+    }
+
     while (state.running) {
         // Dispatch Wayland events
         wl_display_dispatch_pending(state.display);
         wl_display_flush(state.display);
-        
+
         // Calculate timeout for target FPS
         int timeout = -1;
         if (state.animating) {
@@ -1776,17 +1877,27 @@ int main(int argc, char *argv[]) {
             timeout = (int)((frame_time - elapsed) * 1000);
             if (timeout < 0) timeout = 0;
         }
-        
+
         // Poll for events
-        if (poll(fds, 2, timeout) > 0) {
+        if (poll(fds, nfds, timeout) > 0) {
             if (fds[0].revents & POLLIN) {
                 wl_display_dispatch(state.display);
             }
             if (fds[1].revents & POLLIN) {
                 process_ipc_events();
             }
+            // Handle our IPC for dynamic layer management
+            if (nfds > 2 && (fds[2].revents & POLLIN)) {
+                if (ipc_process_commands(state.ipc_ctx)) {
+                    // Sync IPC layers with OpenGL textures
+                    sync_ipc_layers();
+                    // Trigger re-render
+                    state.animating = 1;
+                    state.animation_start = get_time();
+                }
+            }
         }
-        
+
         // Render if animating and enough time has passed
         if (state.animating) {
             double current_time = get_time();
@@ -1796,7 +1907,7 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    
+
     // Cleanup
     if (state.frame_callback) wl_callback_destroy(state.frame_callback);
     if (state.texture) glDeleteTextures(1, &state.texture);
@@ -1804,24 +1915,30 @@ int main(int argc, char *argv[]) {
     if (state.blur_shader_program) glDeleteProgram(state.blur_shader_program);
     if (state.vbo) glDeleteBuffers(1, &state.vbo);
     if (state.ebo) glDeleteBuffers(1, &state.ebo);
-    
+
     eglDestroySurface(state.egl_display, state.egl_surface);
     eglDestroyContext(state.egl_display, state.egl_context);
     eglTerminate(state.egl_display);
-    
+
     wl_egl_window_destroy(state.egl_window);
     zwlr_layer_surface_v1_destroy(state.layer_surface);
     wl_surface_destroy(state.surface);
-    
+
     if (state.ipc_fd >= 0) close(state.ipc_fd);
-    
+
+    // Clean up our IPC
+    if (state.ipc_ctx) {
+        ipc_cleanup(state.ipc_ctx);
+    }
+
     wl_display_disconnect(state.display);
-    
+
     // Clean up config file path
     if (config.config_file_path) {
         free(config.config_file_path);
         config.config_file_path = NULL;
     }
-    
+
     return 0;
 }
+

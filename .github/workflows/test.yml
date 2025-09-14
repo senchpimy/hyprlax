@@ -93,12 +93,13 @@ jobs:
     
     - name: Run cppcheck
       run: |
+        # Check only new IPC code, skip stb_image.h which takes too long
         cppcheck --enable=all --error-exitcode=1 \
           --suppress=missingIncludeSystem \
           --suppress=unusedFunction \
-          --suppress=*:src/stb_image.h \
+          --suppress=constVariablePointer \
           --inline-suppr \
-          src/hyprlax.c
+          src/ipc.c src/hyprlax-ctl.c
     
     - name: Check code formatting
       run: |

@@ -17,6 +17,7 @@ Smooth parallax wallpaper animations for Hyprland.
 - ⚡ **Lightweight** - Native Wayland client using layer-shell protocol
 - 🎨 **Customizable** - Per-layer easing functions, delays, and animation parameters
 - 🔄 **Seamless transitions** - Interrupts and chains animations smoothly
+- 🎮 **Dynamic layer management** - Add, remove, and modify layers at runtime via IPC (NEW in v1.3.0)
 
 ## Installation
 
@@ -83,12 +84,33 @@ exec-once = hyprlax --config ~/.config/hyprlax/parallax.conf
 
 **Full setup guide:** [Configuration Guide](docs/configuration.md)
 
+## Dynamic Layer Management (NEW)
+
+Control layers at runtime using `hyprlax-ctl`:
+
+```bash
+# Add a new layer
+hyprlax-ctl add /path/to/image.png scale=1.5 opacity=0.8
+
+# Modify layer properties
+hyprlax-ctl modify 1 opacity 0.5
+
+# Remove a layer
+hyprlax-ctl remove 1
+
+# List all layers
+hyprlax-ctl list
+```
+
+**Full guide:** [Dynamic Layer Management](docs/IPC.md)
+
 ## Documentation
 
 ### 📚 Guides
 - [Installation](docs/installation.md) - Detailed installation instructions
 - [Configuration](docs/configuration.md) - All configuration options
 - [Multi-Layer Parallax](docs/multi-layer.md) - Creating depth with layers
+- [Dynamic Layer Management](docs/IPC.md) - Runtime layer control via IPC
 - [Animation](docs/animation.md) - Easing functions and timing
 - [Examples](docs/examples.md) - Ready-to-use configurations
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
@@ -112,6 +134,30 @@ exec-once = hyprlax --config ~/.config/hyprlax/parallax.conf
 ## License
 
 MIT
+
+## Development
+
+### Code Quality Tools
+
+We provide linting tools to catch common issues before they reach CI:
+
+```bash
+# Run linter to check for issues
+make lint
+
+# Auto-fix formatting issues
+make lint-fix
+
+# Setup git hooks for automatic pre-commit checks
+./scripts/setup-hooks.sh
+```
+
+The linter checks for:
+- Trailing whitespace
+- Missing newlines at end of files
+- Compilation errors
+- Common security issues
+- Static analysis (if cppcheck is installed)
 
 ## Contributing
 

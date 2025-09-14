@@ -282,7 +282,7 @@ build() {
 # Install hyprlax
 install() {
     if [ $BUILD_ONLY -eq 1 ]; then
-        print_success "Build complete. Binary available at: ./hyprlax"
+        print_success "Build complete. Binaries available at: ./hyprlax and ./hyprlax-ctl"
         return
     fi
     
@@ -312,7 +312,7 @@ install() {
         fi
         
         if sudo make install; then
-            print_success "Installed to /usr/local/bin/hyprlax"
+            print_success "Installed to /usr/local/bin/hyprlax and /usr/local/bin/hyprlax-ctl"
         else
             print_error "Installation failed!"
             exit 1
@@ -328,7 +328,7 @@ install() {
         mkdir -p ~/.local/bin
         
         if make install-user; then
-            print_success "Installed to ~/.local/bin/hyprlax"
+            print_success "Installed to ~/.local/bin/hyprlax and ~/.local/bin/hyprlax-ctl"
             
             # Check if ~/.local/bin is in PATH
             if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
