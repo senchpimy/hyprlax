@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define HYPRLAX_VERSION "1.2.4"
+#define HYPRLAX_VERSION "1.3.0"
 #define INITIAL_MAX_LAYERS 8
 #define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
 #define BLUR_SHADER_MAX_SIZE 2048 // Maximum size for dynamically built shader
@@ -34,6 +34,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
+#include "ipc.h"
 
 // Easing functions
 typedef enum {
@@ -159,6 +161,9 @@ struct {
     
     // Hyprland IPC
     int ipc_fd;
+    
+    // hyprlax IPC for dynamic layer management
+    ipc_context_t *ipc_ctx;
     
     // Running state
     int running;
@@ -523,6 +528,89 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     }
     
     return 0;
+}
+
+// Sync IPC layers with OpenGL textures
+void sync_ipc_layers() {
+    if (!state.ipc_ctx) return;
+    
+    // First, mark all current layers for potential removal
+    for (int i = 0; i < state.layer_count; i++) {
+        if (state.layers[i].image_path) {
+            state.layers[i].opacity = -1.0f; // Mark for removal
+        }
+    }
+    
+    // Process IPC layers
+    for (int i = 0; i < state.ipc_ctx->layer_count; i++) {
+        layer_t* ipc_layer = state.ipc_ctx->layers[i];
+        if (!ipc_layer || !ipc_layer->visible) continue;
+        
+        // Find existing layer with same path
+        struct layer* existing = NULL;
+        int existing_idx = -1;
+        for (int j = 0; j < state.layer_count; j++) {
+            if (state.layers[j].image_path && 
+                strcmp(state.layers[j].image_path, ipc_layer->image_path) == 0) {
+                existing = &state.layers[j];
+                existing_idx = j;
+                break;
+            }
+        }
+        
+        if (existing) {
+            // Update existing layer
+            existing->opacity = ipc_layer->opacity;
+            existing->shift_multiplier = ipc_layer->scale;
+            // TODO: Apply x/y offsets when rendering
+        } else {
+            // Add new layer
+            if (state.layer_count >= state.max_layers) {
+                // Expand layer array
+                int new_max = state.max_layers * 2;
+                struct layer* new_layers = realloc(state.layers, sizeof(struct layer) * new_max);
+                if (new_layers) {
+                    state.layers = new_layers;
+                    state.max_layers = new_max;
+                    memset(&state.layers[state.layer_count], 0, 
+                           sizeof(struct layer) * (new_max - state.layer_count));
+                }
+            }
+            
+            if (state.layer_count < state.max_layers) {
+                struct layer* new_layer = &state.layers[state.layer_count];
+                if (load_layer(new_layer, ipc_layer->image_path, 
+                              ipc_layer->scale, ipc_layer->opacity) == 0) {
+                    new_layer->image_path = strdup(ipc_layer->image_path);
+                    state.layer_count++;
+                }
+            }
+        }
+    }
+    
+    // Remove layers that are no longer in IPC
+    int write_idx = 0;
+    for (int read_idx = 0; read_idx < state.layer_count; read_idx++) {
+        if (state.layers[read_idx].opacity >= 0.0f) {
+            // Keep this layer
+            if (write_idx != read_idx) {
+                state.layers[write_idx] = state.layers[read_idx];
+            }
+            write_idx++;
+        } else {
+            // Remove this layer
+            if (state.layers[read_idx].texture) {
+                glDeleteTextures(1, &state.layers[read_idx].texture);
+            }
+            if (state.layers[read_idx].image_path) {
+                free(state.layers[read_idx].image_path);
+            }
+        }
+    }
+    state.layer_count = write_idx;
+    
+    // Sort layers by z-index (using shift_multiplier as z-index for now)
+    // TODO: Add proper z-index field to struct layer
 }
 
 // Add a layer to the state
@@ -1735,6 +1823,12 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Warning: Failed to connect to Hyprland IPC\n");
     }
     
+    // Initialize hyprlax IPC for dynamic layer management
+    state.ipc_ctx = ipc_init();
+    if (!state.ipc_ctx) {
+        fprintf(stderr, "Warning: Failed to initialize IPC for layer management\n");
+    }
+    
     // Get initial workspace
     state.current_workspace = 1;
     state.previous_workspace = 1;
@@ -1757,11 +1851,20 @@ int main(int argc, char *argv[]) {
     // Main loop
     state.running = 1;
     
-    struct pollfd fds[2];
+    // Set up poll descriptors
+    int nfds = 2;
+    struct pollfd fds[3];
     fds[0].fd = wl_display_get_fd(state.display);
     fds[0].events = POLLIN;
     fds[1].fd = state.ipc_fd;
     fds[1].events = POLLIN;
+    
+    // Add our IPC socket if available
+    if (state.ipc_ctx && state.ipc_ctx->socket_fd >= 0) {
+        fds[2].fd = state.ipc_ctx->socket_fd;
+        fds[2].events = POLLIN;
+        nfds = 3;
+    }
     
     while (state.running) {
         // Dispatch Wayland events
@@ -1778,12 +1881,22 @@ int main(int argc, char *argv[]) {
         }
         
         // Poll for events
-        if (poll(fds, 2, timeout) > 0) {
+        if (poll(fds, nfds, timeout) > 0) {
             if (fds[0].revents & POLLIN) {
                 wl_display_dispatch(state.display);
             }
             if (fds[1].revents & POLLIN) {
                 process_ipc_events();
+            }
+            // Handle our IPC for dynamic layer management
+            if (nfds > 2 && (fds[2].revents & POLLIN)) {
+                if (ipc_process_commands(state.ipc_ctx)) {
+                    // Sync IPC layers with OpenGL textures
+                    sync_ipc_layers();
+                    // Trigger re-render
+                    state.animating = 1;
+                    state.animation_start = get_time();
+                }
             }
         }
         
@@ -1814,6 +1927,11 @@ int main(int argc, char *argv[]) {
     wl_surface_destroy(state.surface);
     
     if (state.ipc_fd >= 0) close(state.ipc_fd);
+    
+    // Clean up our IPC
+    if (state.ipc_ctx) {
+        ipc_cleanup(state.ipc_ctx);
+    }
     
     wl_display_disconnect(state.display);
     

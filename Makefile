@@ -30,11 +30,16 @@ PROTOCOL_SRCS = protocols/xdg-shell-protocol.c protocols/wlr-layer-shell-protoco
 PROTOCOL_HDRS = protocols/xdg-shell-client-protocol.h protocols/wlr-layer-shell-client-protocol.h
 
 # Source files
-SRCS = src/hyprlax.c $(PROTOCOL_SRCS)
+SRCS = src/hyprlax.c src/ipc.c $(PROTOCOL_SRCS)
 OBJS = $(SRCS:.c=.o)
 TARGET = hyprlax
 
-all: $(TARGET)
+# hyprlax-ctl client
+CTL_SRCS = src/hyprlax-ctl.c
+CTL_OBJS = $(CTL_SRCS:.c=.o)
+CTL_TARGET = hyprlax-ctl
+
+all: $(TARGET) $(CTL_TARGET)
 
 # Generate protocol files
 protocols/xdg-shell-protocol.c: $(XDG_SHELL_PROTOCOL)
@@ -61,38 +66,52 @@ protocols/wlr-layer-shell-client-protocol.h: $(LAYER_SHELL_PROTOCOL)
 $(TARGET): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) $(PKG_LIBS) -lm -o $@
 
+$(CTL_TARGET): $(CTL_OBJS)
+	$(CC) $(LDFLAGS) $(CTL_OBJS) -o $@
+
 clean:
-	rm -f $(TARGET) $(OBJS) $(PROTOCOL_SRCS) $(PROTOCOL_HDRS)
+	rm -f $(TARGET) $(CTL_TARGET) $(OBJS) $(CTL_OBJS) $(PROTOCOL_SRCS) $(PROTOCOL_HDRS)
 	rm -rf protocols/*.o src/*.o
 
 PREFIX ?= /usr/local
 BINDIR = $(PREFIX)/bin
 DESTDIR ?=
 
-install: $(TARGET)
+install: $(TARGET) $(CTL_TARGET)
 	install -Dm755 $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
+	install -Dm755 $(CTL_TARGET) $(DESTDIR)$(BINDIR)/$(CTL_TARGET)
 
-install-user: $(TARGET)
+install-user: $(TARGET) $(CTL_TARGET)
 	install -Dm755 $(TARGET) ~/.local/bin/$(TARGET)
+	install -Dm755 $(CTL_TARGET) ~/.local/bin/$(CTL_TARGET)
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
+	rm -f $(DESTDIR)$(BINDIR)/$(CTL_TARGET)
 
 uninstall-user:
 	rm -f ~/.local/bin/$(TARGET)
+	rm -f ~/.local/bin/$(CTL_TARGET)
 
 # Test suite
 TEST_SRCS = tests/test_hyprlax.c
 TEST_TARGET = tests/test_hyprlax
+IPC_TEST_SRCS = tests/test_ipc.c src/ipc.c
+IPC_TEST_TARGET = tests/test_ipc
 
 $(TEST_TARGET): $(TEST_SRCS) $(TARGET)
 	$(CC) $(CFLAGS) $(TEST_SRCS) -lm -o $(TEST_TARGET)
 
-test: $(TEST_TARGET)
+$(IPC_TEST_TARGET): $(IPC_TEST_SRCS)
+	$(CC) $(CFLAGS) $(IPC_TEST_SRCS) -o $(IPC_TEST_TARGET)
+
+test: $(TEST_TARGET) $(IPC_TEST_TARGET)
 	@echo "Running test suite..."
 	@./$(TEST_TARGET)
+	@echo "Running IPC test suite..."
+	@./$(IPC_TEST_TARGET)
 
 clean-tests:
-	rm -f $(TEST_TARGET)
+	rm -f $(TEST_TARGET) $(IPC_TEST_TARGET)
 
 .PHONY: all clean install install-user uninstall uninstall-user test clean-tests
