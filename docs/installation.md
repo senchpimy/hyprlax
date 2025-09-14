@@ -51,6 +51,7 @@ sudo mv hyprlax-aarch64 /usr/local/bin/hyprlax
 ## Building from Source
 
 ### Dependencies
+_Only Arch Linux has been thorougly tested, if you find issues with dependency installations on your system, please open an issue_
 
 #### Arch Linux
 ```bash
