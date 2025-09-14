@@ -185,29 +185,29 @@ download_binary() {
     # Construct download URL
     local download_url="https://github.com/${GITHUB_REPO}/releases/download/${version}/hyprlax-${arch}"
     
-    print_step "Downloading hyprlax ${version} for ${arch}..."
+    print_step "Downloading hyprlax ${version} for ${arch}..." >&2
     
     if curl -sSL "$download_url" -o "$temp_file"; then
         # Verify it's actually a binary
         if file "$temp_file" | grep -q "ELF"; then
-            print_success "Download successful"
-            echo "$temp_file"
+            print_success "Download successful" >&2
+            echo "$temp_file"  # Only output the filename to stdout
         else
-            print_error "Downloaded file is not a valid binary"
+            print_error "Downloaded file is not a valid binary" >&2
             rm -f "$temp_file"
             
             # Check if this architecture is available
-            print_warning "Binary for ${arch} might not be available"
-            print_info "Available binaries:"
+            print_warning "Binary for ${arch} might not be available" >&2
+            print_info "Available binaries:" >&2
             curl -sSL "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${version}" | \
-                grep '"name"' | grep "hyprlax-" | sed 's/.*"hyprlax-/  - /' | sed 's/".*//'
+                grep '"name"' | grep "hyprlax-" | sed 's/.*"hyprlax-/  - /' | sed 's/".*//' >&2
             
-            print_info "Please build from source: https://github.com/${GITHUB_REPO}"
+            print_info "Please build from source: https://github.com/${GITHUB_REPO}" >&2
             exit 1
         fi
     else
-        print_error "Failed to download binary"
-        print_info "URL attempted: $download_url"
+        print_error "Failed to download binary" >&2
+        print_info "URL attempted: $download_url" >&2
         exit 1
     fi
 }
