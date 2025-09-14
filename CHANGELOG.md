@@ -5,6 +5,19 @@ All notable changes to hyprlax will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-09-14
+
+### Fixed
+- 🐛 Config-loaded layers now properly integrate with IPC system
+- 🔧 `hyprlax-ctl list` now shows config-loaded layers instead of returning "No layers"
+- 🎮 Background no longer disappears when using IPC commands
+- 🖼️ Parallax animation now works on all workspaces (was breaking after workspace 5)
+- 🔄 Config layers can now be dynamically managed via hyprlax-ctl
+
+### Changed
+- Improved workspace detection to always assume at least 10 workspaces
+- sync_ipc_layers() now preserves config-loaded layers instead of destroying them
+
 ## [1.3.0] - 2025-09-14
 
 ### Added
@@ -52,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🎨 Multiple easing functions
 - 🔄 Seamless animation interruption
 
+[1.3.1]: https://github.com/sandwichfarm/hyprlax/releases/tag/v1.3.1
 [1.3.0]: https://github.com/sandwichfarm/hyprlax/releases/tag/v1.3.0
 [1.2.0]: https://github.com/sandwichfarm/hyprlax/releases/tag/v1.2.0
 [1.1.0]: https://github.com/sandwichfarm/hyprlax/releases/tag/v1.1.0
