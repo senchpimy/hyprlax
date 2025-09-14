@@ -117,7 +117,24 @@ test: $(TEST_TARGET) $(IPC_TEST_TARGET)
 	@echo "Running IPC test suite..."
 	@./$(IPC_TEST_TARGET)
 
+# Linting targets
+lint:
+	@if [ -x scripts/lint.sh ]; then \
+		./scripts/lint.sh; \
+	else \
+		echo "Lint script not found. Please ensure scripts/lint.sh exists and is executable."; \
+		exit 1; \
+	fi
+
+lint-fix:
+	@if [ -x scripts/lint.sh ]; then \
+		./scripts/lint.sh --fix; \
+	else \
+		echo "Lint script not found. Please ensure scripts/lint.sh exists and is executable."; \
+		exit 1; \
+	fi
+
 clean-tests:
 	rm -f $(TEST_TARGET) $(IPC_TEST_TARGET)
 
-.PHONY: all clean install install-user uninstall uninstall-user test clean-tests
+.PHONY: all clean install install-user uninstall uninstall-user test clean-tests lint lint-fix

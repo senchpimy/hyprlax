@@ -135,6 +135,30 @@ hyprlax-ctl list
 
 MIT
 
+## Development
+
+### Code Quality Tools
+
+We provide linting tools to catch common issues before they reach CI:
+
+```bash
+# Run linter to check for issues
+make lint
+
+# Auto-fix formatting issues
+make lint-fix
+
+# Setup git hooks for automatic pre-commit checks
+./scripts/setup-hooks.sh
+```
+
+The linter checks for:
+- Trailing whitespace
+- Missing newlines at end of files
+- Compilation errors
+- Common security issues
+- Static analysis (if cppcheck is installed)
+
 ## Contributing
 
 Pull requests are welcome! Please read [RELEASE.md](RELEASE.md) for the release process.
