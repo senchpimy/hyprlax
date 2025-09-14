@@ -1,6 +1,6 @@
 /*
  * hyprlax-ctl - Command-line client for hyprlax IPC
- * 
+ *
  * Usage:
  *   hyprlax-ctl add <image> [scale=1.0] [opacity=1.0] [x=0] [y=0] [z=0]
  *   hyprlax-ctl remove <id>
@@ -49,37 +49,37 @@ int main(int argc, char** argv) {
         print_usage(argv[0]);
         return 1;
     }
-    
+
     // Get socket path
     char socket_path[256];
     get_socket_path(socket_path, sizeof(socket_path));
-    
+
     // Create socket
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("Failed to create socket");
         return 1;
     }
-    
+
     // Connect to hyprlax IPC socket
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
-    
+
     if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         fprintf(stderr, "Failed to connect to hyprlax IPC socket at %s\n", socket_path);
         fprintf(stderr, "Is hyprlax running?\n");
         close(sock);
         return 1;
     }
-    
+
     // Build command string
     char command[IPC_MAX_MESSAGE_SIZE];
     size_t offset = 0;
-    
+
     for (int i = 1; i < argc; i++) {
-        int written = snprintf(command + offset, sizeof(command) - offset, 
+        int written = snprintf(command + offset, sizeof(command) - offset,
                                "%s%s", (i > 1 ? " " : ""), argv[i]);
         if (written < 0 || offset + (size_t)written >= sizeof(command)) {
             fprintf(stderr, "Command too long\n");
@@ -88,14 +88,14 @@ int main(int argc, char** argv) {
         }
         offset += (size_t)written;
     }
-    
+
     // Send command
     if (send(sock, command, strlen(command), 0) < 0) {
         perror("Failed to send command");
         close(sock);
         return 1;
     }
-    
+
     // Receive response
     char response[IPC_MAX_MESSAGE_SIZE];
     ssize_t bytes = recv(sock, response, sizeof(response) - 1, 0);
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
         response[bytes] = '\0';
         printf("%s", response);
     }
-    
+
     close(sock);
     return 0;
 }

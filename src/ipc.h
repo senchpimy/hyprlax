@@ -66,3 +66,4 @@ layer_t* ipc_find_layer(ipc_context_t* ctx, uint32_t layer_id);
 void ipc_sort_layers(ipc_context_t* ctx);
 
 #endif // HYPRLAX_IPC_H
+
