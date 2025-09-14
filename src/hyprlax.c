@@ -534,6 +534,20 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
 void sync_ipc_layers() {
     if (!state.ipc_ctx) return;
 
+    // If there are no IPC layers but we have config layers, add them to IPC
+    if (state.ipc_ctx->layer_count == 0 && state.layer_count > 0) {
+        // Add existing layers to IPC context so they can be managed
+        for (int i = 0; i < state.layer_count; i++) {
+            if (state.layers[i].image_path) {
+                ipc_add_layer(state.ipc_ctx, state.layers[i].image_path,
+                             state.layers[i].shift_multiplier,
+                             state.layers[i].opacity,
+                             0.0f, 0.0f, i);
+            }
+        }
+        return;  // Don't sync back, we just populated IPC from config
+    }
+
     // First, mark all current layers for potential removal
     for (int i = 0; i < state.layer_count; i++) {
         if (state.layers[i].image_path) {
@@ -922,12 +936,12 @@ int detect_max_workspaces() {
     waitpid(pid, NULL, 0);
 
     if (max_ws > 0) {
-        // If we only see workspaces up to 5, assume 10 (common default)
-        if (max_ws <= 5) {
-            return 10;
+        // Always use at least 10 workspaces to avoid breaking parallax
+        if (max_ws < 10) {
+            max_ws = 10;
         }
         if (config.debug) {
-            printf("Detected max workspace from existing workspaces: %d\n", max_ws);
+            printf("Detected max workspace: %d\n", max_ws);
         }
         return max_ws;
     }
@@ -1049,15 +1063,6 @@ void process_ipc_events() {
 
                 // Only animate if this is a real workspace change
                 if (workspace != state.current_workspace && workspace > 0) {
-                    // Don't animate if we're going beyond configured workspace boundaries
-                    if (workspace > config.max_workspaces) {
-                        if (config.debug) {
-                            printf("Ignoring workspace %d (beyond max %d)\n", workspace, config.max_workspaces);
-                        }
-                        // Don't update current_workspace to a non-existent workspace
-                        line = strtok(NULL, "\n");
-                        continue;
-                    }
                     if (config.multi_layer_mode) {
                         // Multi-layer mode: update each layer's animation state
                         double now = get_time();
@@ -1825,6 +1830,19 @@ int main(int argc, char *argv[]) {
     state.ipc_ctx = ipc_init();
     if (!state.ipc_ctx) {
         fprintf(stderr, "Warning: Failed to initialize IPC for layer management\n");
+    } else if (config.multi_layer_mode && state.layer_count > 0) {
+        // Add config-loaded layers to IPC context so they can be managed
+        for (int i = 0; i < state.layer_count; i++) {
+            if (state.layers[i].image_path) {
+                ipc_add_layer(state.ipc_ctx, state.layers[i].image_path,
+                             state.layers[i].shift_multiplier,
+                             state.layers[i].opacity,
+                             0.0f, 0.0f, i);
+            }
+        }
+        if (config.debug) {
+            printf("Added %d config layers to IPC context\n", state.layer_count);
+        }
     }
 
     // Get initial workspace
