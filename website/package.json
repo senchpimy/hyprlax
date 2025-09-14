@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && cp ../install-remote.sh dist/install.sh",
+    "build": "vite build && cp ../install-remote.sh dist/install.sh && cp -r ../assets dist/",
     "preview": "vite preview",
     "generate-favicons": "node scripts/generate-favicons.mjs"
   },
