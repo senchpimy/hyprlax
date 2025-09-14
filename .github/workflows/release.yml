@@ -109,9 +109,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.version }}
-        name: hyprlax ${{ steps.version.outputs.version }}
+        name: ${{ steps.version.outputs.version }}
         body: |
-          ## hyprlax ${{ steps.version.outputs.version }}
+          ## Release ${{ steps.version.outputs.version }}
           
           Smooth parallax wallpaper animations for Hyprland.
           
