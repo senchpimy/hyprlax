@@ -81,16 +81,12 @@
     <div class="w-full max-w-4xl aspect-video mb-12 relative group">
       <div class="absolute inset-0 bg-gradient-to-r from-hypr-blue/20 to-hypr-pink/20 rounded-2xl blur-3xl group-hover:blur-2xl transition-all duration-500"></div>
       <div class="relative bg-hypr-dark/80 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
-        <div class="w-full h-full flex items-center justify-center">
-          <!-- Placeholder for screencast -->
-          <div class="text-center p-8">
-            <svg class="w-16 h-16 mx-auto mb-4 text-hypr-blue animate-float" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <p class="text-gray-500 font-mono">screencast coming soon</p>
-          </div>
-        </div>
+        <img 
+          src="/assets/hyprlax-demo.gif" 
+          alt="Hyprlax parallax wallpaper animation demo" 
+          class="w-full h-full object-cover"
+          loading="lazy"
+        />
       </div>
     </div>
     
