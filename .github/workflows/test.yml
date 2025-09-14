@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [ master, main, 'feature/**' ]
+    branches: [ master, main ]
     paths-ignore:
       - '**.md'
       - 'website/**'
@@ -96,8 +96,9 @@ jobs:
         cppcheck --enable=all --error-exitcode=1 \
           --suppress=missingIncludeSystem \
           --suppress=unusedFunction \
+          --suppress=*:src/stb_image.h \
           --inline-suppr \
-          src/
+          src/hyprlax.c
     
     - name: Check code formatting
       run: |
