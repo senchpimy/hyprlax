@@ -118,18 +118,7 @@ hyprlax-ctl list
 
 ## Changelog
 
-### v1.2.0 (Latest)
-- 🌌 **Multi-layer parallax support** - Create depth with multiple independent layers
-- 🔍 **Blur effects** - Per-layer blur for realistic depth-of-field
-- 🎨 **Per-layer animation controls** - Individual easing, delays, and durations
-- 📝 **Configuration file support** - Load complex setups from config files
-- ⚡ **Phase 3 optimizations** - Improved rendering pipeline for multiple layers
-
-### v1.1.0
-- 🎬 Initial release with smooth parallax animations
-- ⚡ GPU-accelerated rendering
-- 🎨 Multiple easing functions
-- 🔄 Seamless animation interruption
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## License
 
