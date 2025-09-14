@@ -84,7 +84,7 @@ exec-once = hyprlax --config ~/.config/hyprlax/parallax.conf
 
 **Full setup guide:** [Configuration Guide](docs/configuration.md)
 
-## Dynamic Layer Management (NEW)
+## Dynamic Layer Management
 
 Control layers at runtime using `hyprlax-ctl`:
 
