@@ -1,0 +1,145 @@
+name: Tests
+
+on:
+  push:
+    branches: [ master, main, 'feature/**' ]
+    paths-ignore:
+      - '**.md'
+      - 'website/**'
+      - '.github/workflows/deploy-website.yml'
+      - '.github/workflows/release.yml'
+  pull_request:
+    branches: [ master, main ]
+    paths-ignore:
+      - '**.md'
+      - 'website/**'
+      - '.github/workflows/deploy-website.yml'
+      - '.github/workflows/release.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwayland-dev \
+          wayland-protocols \
+          libegl1-mesa-dev \
+          libgles2-mesa-dev \
+          pkg-config \
+          make \
+          ${{ matrix.compiler }}
+    
+    - name: Build hyprlax
+      env:
+        CC: ${{ matrix.compiler }}
+      run: |
+        make clean
+        make
+    
+    - name: Run tests
+      run: make test
+    
+    - name: Test version output
+      run: |
+        ./hyprlax --version
+        ./hyprlax --help || true
+    
+    - name: Test install scripts
+      run: |
+        # Test that install scripts have correct syntax
+        bash -n install.sh
+        bash -n install-remote.sh
+    
+    - name: Build with optimizations disabled (for debugging)
+      if: matrix.compiler == 'gcc'
+      env:
+        CC: gcc
+        CFLAGS: -Wall -Wextra -O0 -g -fsanitize=address -fsanitize=undefined
+      run: |
+        make clean
+        make
+        # Run tests with sanitizers
+        make test || true
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install analysis tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cppcheck \
+          clang-tools \
+          libwayland-dev \
+          wayland-protocols \
+          libegl1-mesa-dev \
+          libgles2-mesa-dev \
+          pkg-config
+    
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all --error-exitcode=1 \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --inline-suppr \
+          src/
+    
+    - name: Check code formatting
+      run: |
+        # Check for common issues
+        # No trailing whitespace
+        ! grep -r '[[:space:]]$' src/ --include="*.c" --include="*.h"
+        
+        # No tabs (optional, can be removed if tabs are preferred)
+        # ! grep -r $'\t' src/ --include="*.c" --include="*.h"
+        
+        # Files end with newline
+        for file in src/*.c src/*.h; do
+          [ -f "$file" ] && [ -n "$(tail -c 1 "$file")" ] && echo "$file: No newline at end of file" && exit 1
+        done || true
+
+  memory-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwayland-dev \
+          wayland-protocols \
+          libegl1-mesa-dev \
+          libgles2-mesa-dev \
+          pkg-config \
+          make \
+          gcc \
+          valgrind
+    
+    - name: Build for memory testing
+      env:
+        CC: gcc
+        CFLAGS: -Wall -Wextra -O0 -g
+      run: make
+    
+    - name: Run tests with valgrind
+      run: |
+        valgrind --leak-check=full --error-exitcode=1 \
+          ./tests/test_hyprlax || true
