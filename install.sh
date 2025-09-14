@@ -5,7 +5,7 @@
 set -e
 
 # Version of this installer
-INSTALLER_VERSION="1.1.0"
+INSTALLER_VERSION="1.2.0"
 
 # Colors for output
 RED='\033[0;31m'
@@ -203,10 +203,42 @@ backup_existing() {
 
 # Build hyprlax
 build() {
+    # First get the version from source before building
+    if [ -f "src/hyprlax.c" ]; then
+        NEW_VERSION=$(grep -oP '#define HYPRLAX_VERSION "\K[^"]+' src/hyprlax.c 2>/dev/null || echo "unknown")
+    fi
+    
     if [ $IS_UPGRADE -eq 1 ]; then
         print_step "Building new version..."
+        
+        # Show version comparison
+        echo
+        print_info "Version information:"
+        print_step "  Installed version: ${CYAN}$EXISTING_VERSION${NC}"
+        print_step "  Available version: ${GREEN}$NEW_VERSION${NC}"
+        
+        # Check if versions are the same (if we can determine them)
+        if [ "$EXISTING_VERSION" = "$NEW_VERSION" ] && [ "$NEW_VERSION" != "unknown" ] && [ $FORCE_INSTALL -eq 0 ]; then
+            print_warning "Same version already installed!"
+            echo
+            read -p "Do you want to reinstall anyway? (y/N) " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Installation cancelled"
+                exit 0
+            fi
+        elif [ "$NEW_VERSION" != "unknown" ] && [ "$EXISTING_VERSION" != "unknown" ]; then
+            # Simple version comparison if both are semantic versions
+            if [[ "$NEW_VERSION" < "$EXISTING_VERSION" ]]; then
+                print_warning "You are installing an older version!"
+            fi
+        fi
+        echo
     else
         print_info "Building hyprlax..."
+        if [ "$NEW_VERSION" != "unknown" ]; then
+            print_step "Version to install: ${GREEN}$NEW_VERSION${NC}"
+        fi
     fi
     
     if [ ! -f "Makefile" ]; then
@@ -217,15 +249,20 @@ build() {
     # Clean and build
     make clean > /dev/null 2>&1
     
-    if make; then
+    if make > /dev/null 2>&1; then
         print_success "Build successful"
         
-        # Try to get version of new build
+        # Verify version of built binary
         if [ -f "./hyprlax" ]; then
-            NEW_VERSION=$(./hyprlax --version 2>/dev/null || echo "latest")
+            local built_version=$(./hyprlax --version 2>/dev/null || echo "")
+            if [ -n "$built_version" ] && [ "$built_version" != "$NEW_VERSION" ]; then
+                NEW_VERSION="$built_version"
+            fi
         fi
     else
         print_error "Build failed!"
+        # Show actual build output on failure
+        make
         exit 1
     fi
 }
@@ -361,8 +398,20 @@ show_completion_message() {
         echo "================================"
         echo
         
-        if [ "$EXISTING_VERSION" != "unknown" ] && [ "$NEW_VERSION" != "latest" ]; then
-            print_info "Upgraded from: $EXISTING_VERSION → $NEW_VERSION"
+        # Always show version information when available
+        if [ "$EXISTING_VERSION" != "unknown" ] || [ "$NEW_VERSION" != "unknown" ]; then
+            print_success "Version information:"
+            if [ "$EXISTING_VERSION" != "unknown" ]; then
+                print_step "  Previous version: ${CYAN}$EXISTING_VERSION${NC}"
+            else
+                print_step "  Previous version: ${CYAN}(could not determine)${NC}"
+            fi
+            
+            if [ "$NEW_VERSION" != "unknown" ] && [ "$NEW_VERSION" != "latest" ]; then
+                print_step "  Installed version: ${GREEN}$NEW_VERSION${NC}"
+            else
+                print_step "  Installed version: ${GREEN}(latest from source)${NC}"
+            fi
         else
             print_success "Successfully upgraded hyprlax"
         fi
@@ -416,20 +465,47 @@ main() {
             echo
             
             print_info "Existing installation detected"
+            
+            # Get the new version from source before asking to upgrade
+            if [ -f "src/hyprlax.c" ]; then
+                NEW_VERSION=$(grep -oP '#define HYPRLAX_VERSION "\K[^"]+' src/hyprlax.c 2>/dev/null || echo "unknown")
+            fi
+            
+            # Display version information clearly
+            print_info "Version comparison:"
             if [ "$EXISTING_VERSION" != "unknown" ]; then
-                print_step "Current version: $EXISTING_VERSION"
+                print_step "  Currently installed: ${CYAN}$EXISTING_VERSION${NC}"
+            else
+                print_step "  Currently installed: ${CYAN}(version unknown)${NC}"
+            fi
+            
+            if [ "$NEW_VERSION" != "unknown" ]; then
+                print_step "  Available to install: ${GREEN}$NEW_VERSION${NC}"
+            else
+                print_step "  Available to install: ${GREEN}(latest from source)${NC}"
+            fi
+            
+            # Check if it's actually an upgrade, downgrade, or same version
+            if [ "$EXISTING_VERSION" = "$NEW_VERSION" ] && [ "$NEW_VERSION" != "unknown" ]; then
+                print_warning "Same version already installed!"
+            elif [ "$NEW_VERSION" != "unknown" ] && [ "$EXISTING_VERSION" != "unknown" ]; then
+                if [[ "$NEW_VERSION" > "$EXISTING_VERSION" ]]; then
+                    print_success "Upgrade available!"
+                elif [[ "$NEW_VERSION" < "$EXISTING_VERSION" ]]; then
+                    print_warning "This would downgrade your installation!"
+                fi
             fi
             
             if [ $FORCE_INSTALL -eq 0 ]; then
                 echo
-                read -p "Do you want to upgrade? (y/N) " -n 1 -r
+                read -p "Do you want to proceed? (y/N) " -n 1 -r
                 echo
                 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    print_info "Upgrade cancelled"
+                    print_info "Installation cancelled"
                     exit 0
                 fi
             else
-                print_info "Force upgrade enabled"
+                print_info "Force install enabled - proceeding"
             fi
         else
             echo "================================"
