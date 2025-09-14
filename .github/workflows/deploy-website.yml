@@ -6,8 +6,9 @@ on:
       - master
     paths:
       - 'website/**'
-      - 'install.sh'
+      - 'install-remote.sh'
       - '.github/workflows/deploy-website.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:
