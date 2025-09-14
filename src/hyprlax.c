@@ -1049,6 +1049,10 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *la
     
     glViewport(0, 0, width, height);
     render_frame();
+    
+    // Commit the surface to display the rendered frame
+    wl_surface_commit(state.surface);
+    wl_display_flush(state.display);
 }
 
 static void layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *layer_surface) {
