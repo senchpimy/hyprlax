@@ -116,10 +116,17 @@ check_existing_installation() {
         
         # Get version of existing installation
         if [ -f "$binary_path" ] && [ -x "$binary_path" ]; then
-            # Try to get version (this assumes hyprlax --version works in future)
-            EXISTING_VERSION=$("$binary_path" --version 2>/dev/null || echo "unknown")
+            # Try to get version - hyprlax --version returns multiple lines, extract just the version number
+            local full_version=$("$binary_path" --version 2>/dev/null || echo "unknown")
             
-            if [ "$EXISTING_VERSION" = "unknown" ]; then
+            if [ "$full_version" != "unknown" ]; then
+                # Extract just the version number (e.g., "1.2.3" from "hyprlax 1.2.3\nSmooth parallax...")
+                EXISTING_VERSION=$(echo "$full_version" | head -1 | grep -oP '\d+\.\d+\.\d+' || echo "$full_version")
+            else
+                EXISTING_VERSION="unknown"
+            fi
+            
+            if [ "$EXISTING_VERSION" = "unknown" ] || [ -z "$EXISTING_VERSION" ]; then
                 # Fallback: check file modification time
                 local mod_date=$(stat -c %y "$binary_path" 2>/dev/null | cut -d' ' -f1 || echo "unknown")
                 EXISTING_VERSION="installed on $mod_date"
@@ -228,9 +235,14 @@ build() {
                 exit 0
             fi
         elif [ "$NEW_VERSION" != "unknown" ] && [ "$EXISTING_VERSION" != "unknown" ]; then
-            # Simple version comparison if both are semantic versions
-            if [[ "$NEW_VERSION" < "$EXISTING_VERSION" ]]; then
-                print_warning "You are installing an older version!"
+            # Proper semantic version comparison
+            local existing_comparable=$(echo "$EXISTING_VERSION" | awk -F. '{printf "%03d%03d%03d", $1, $2, $3}' 2>/dev/null)
+            local new_comparable=$(echo "$NEW_VERSION" | awk -F. '{printf "%03d%03d%03d", $1, $2, $3}' 2>/dev/null)
+            
+            if [ -n "$existing_comparable" ] && [ -n "$new_comparable" ]; then
+                if [ "$new_comparable" -lt "$existing_comparable" ]; then
+                    print_warning "You are installing an older version!"
+                fi
             fi
         fi
         echo
@@ -489,10 +501,17 @@ main() {
             if [ "$EXISTING_VERSION" = "$NEW_VERSION" ] && [ "$NEW_VERSION" != "unknown" ]; then
                 print_warning "Same version already installed!"
             elif [ "$NEW_VERSION" != "unknown" ] && [ "$EXISTING_VERSION" != "unknown" ]; then
-                if [[ "$NEW_VERSION" > "$EXISTING_VERSION" ]]; then
-                    print_success "Upgrade available!"
-                elif [[ "$NEW_VERSION" < "$EXISTING_VERSION" ]]; then
-                    print_warning "This would downgrade your installation!"
+                # Proper semantic version comparison
+                # Convert versions to comparable format (e.g., 1.2.3 -> 001002003)
+                local existing_comparable=$(echo "$EXISTING_VERSION" | awk -F. '{printf "%03d%03d%03d", $1, $2, $3}' 2>/dev/null)
+                local new_comparable=$(echo "$NEW_VERSION" | awk -F. '{printf "%03d%03d%03d", $1, $2, $3}' 2>/dev/null)
+                
+                if [ -n "$existing_comparable" ] && [ -n "$new_comparable" ]; then
+                    if [ "$new_comparable" -gt "$existing_comparable" ]; then
+                        print_success "Upgrade available!"
+                    elif [ "$new_comparable" -lt "$existing_comparable" ]; then
+                        print_warning "This would downgrade your installation!"
+                    fi
                 fi
             fi
             
