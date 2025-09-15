@@ -2,14 +2,13 @@
 
 This guide covers all installation methods for hyprlax.
 
-## Quick Install (Recommended)
+## Quick Install
 
 The easiest (but also least secure) way to install hyprlax is with the one-liner  
 
 ```bash
 curl -sSL https://hyprlax.com/install.sh | bash
 ```
-
 
 The next easiest (and more secure) is to checkout the source and run the install script 
 
