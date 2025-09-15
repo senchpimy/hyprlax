@@ -3,8 +3,8 @@
 #define INITIAL_MAX_LAYERS 8
 #define MAX_CONFIG_LINE_SIZE 512  // Maximum line length in config files
 #define BLUR_SHADER_MAX_SIZE 2048 // Maximum size for dynamically built shader
-#define BLUR_KERNEL_SIZE 3.0f    // Size of the blur kernel
-#define BLUR_WEIGHT_FALLOFF 0.2f // Weight falloff for blur samples
+#define BLUR_KERNEL_SIZE 5.0f    // Size of the blur kernel
+#define BLUR_WEIGHT_FALLOFF 0.15f // Weight falloff for blur samples
 #define BLUR_MIN_THRESHOLD 0.001f // Minimum blur amount to apply effect
 
 #include <stdio.h>
@@ -271,26 +271,24 @@ char *build_blur_shader() {
         "        return;\n"
         "    }\n"
         "    \n"
-        "    // 9-tap box blur for performance\n"
+        "    // DEBUG: Make blur effect super obvious by tinting red AND blurring\n"
         "    vec2 texelSize = 1.0 / u_resolution;\n"
         "    vec4 result = vec4(0.0);\n"
-        "    float total = 0.0;\n"
+        "    float samples = 0.0;\n"
         "    \n"
-        "    for (float x = -1.0; x <= 1.0; x += 1.0) {\n"
-        "        for (float y = -1.0; y <= 1.0; y += 1.0) {\n"
-        "            vec2 offset = vec2(x, y) * texelSize * blur * %.1f;\n"  // BLUR_KERNEL_SIZE
-        "            float weight = 1.0 - length(vec2(x, y)) * %.1f;\n"  // BLUR_WEIGHT_FALLOFF
-        "            result += texture2D(u_texture, v_texcoord + offset) * weight;\n"
-        "            total += weight;\n"
+        "    // Large blur radius for testing\n"
+        "    for (float x = -10.0; x <= 10.0; x += 2.0) {\n"
+        "        for (float y = -10.0; y <= 10.0; y += 2.0) {\n"
+        "            vec2 offset = vec2(x, y) * texelSize * blur;\n"
+        "            result += texture2D(u_texture, v_texcoord + offset);\n"
+        "            samples += 1.0;\n"
         "        }\n"
         "    }\n"
         "    \n"
-        "    result /= total;\n"
-        "    // Premultiply alpha for correct blending\n"
-        "    float final_alpha = result.a * u_opacity;\n"
-        "    gl_FragColor = vec4(result.rgb * final_alpha, final_alpha);\n"
+        "    result /= samples;\n"
+        "    gl_FragColor = vec4(result.rgb, result.a * u_opacity);\n"
         "}\n",
-        BLUR_MIN_THRESHOLD, BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
+        BLUR_MIN_THRESHOLD);
 
     // Check if formatting failed first
     if (written < 0) {
@@ -362,20 +360,36 @@ int init_gl() {
         fprintf(stderr, "Failed to build blur shader\n");
         return -1;
     }
+    
+    if (config.debug) {
+        fprintf(stderr, "Building blur shader with BLUR_KERNEL_SIZE=%.1f, BLUR_WEIGHT_FALLOFF=%.2f\n", 
+                BLUR_KERNEL_SIZE, BLUR_WEIGHT_FALLOFF);
+    }
 
     GLuint blur_fragment = compile_shader(GL_FRAGMENT_SHADER, blur_shader_src);
     free(blur_shader_src);  // Free the dynamically built shader
-    if (!blur_fragment) return -1;
+    if (!blur_fragment) {
+        fprintf(stderr, "Failed to compile blur fragment shader\n");
+        return -1;
+    }
 
     state.blur_shader_program = glCreateProgram();
+    if (config.debug) {
+        fprintf(stderr, "Created blur shader program: %d\n", state.blur_shader_program);
+    }
     glAttachShader(state.blur_shader_program, vertex_shader);
     glAttachShader(state.blur_shader_program, blur_fragment);
     glLinkProgram(state.blur_shader_program);
 
     glGetProgramiv(state.blur_shader_program, GL_LINK_STATUS, &status);
     if (!status) {
-        fprintf(stderr, "Blur shader linking failed\n");
+        char log[512];
+        glGetProgramInfoLog(state.blur_shader_program, sizeof(log), NULL, log);
+        fprintf(stderr, "Blur shader linking failed: %s\n", log);
         return -1;
+    }
+    if (config.debug) {
+        fprintf(stderr, "Blur shader linked successfully, program ID: %d\n", state.blur_shader_program);
     }
 
     glDeleteShader(vertex_shader);
@@ -411,6 +425,11 @@ int init_gl() {
     state.blur_u_resolution = glGetUniformLocation(state.blur_shader_program, "u_resolution");
     if (state.blur_u_resolution == -1) {
         fprintf(stderr, "Warning: Failed to find uniform 'u_resolution' in blur shader\n");
+    }
+    
+    if (config.debug) {
+        fprintf(stderr, "Blur shader uniform locations: texture=%d, opacity=%d, blur_amount=%d, resolution=%d\n",
+               state.blur_u_texture, state.blur_u_opacity, state.blur_u_blur_amount, state.blur_u_resolution);
     }
 
     // Switch back to standard shader
@@ -481,7 +500,7 @@ int load_image(const char *path) {
 }
 
 // Load image as layer for multi-layer mode
-int load_layer(struct layer *layer, const char *path, float shift_multiplier, float opacity) {
+int load_layer(struct layer *layer, const char *path, float shift_multiplier, float opacity, float blur_amount) {
     int channels;
     unsigned char *data = stbi_load(path, &layer->width, &layer->height, &channels, 4);
     if (!data) {
@@ -518,7 +537,7 @@ int load_layer(struct layer *layer, const char *path, float shift_multiplier, fl
     layer->animation_duration = config.animation_duration;  // Use global duration by default
     layer->animation_start = 0.0;
     layer->animating = 0;
-    layer->blur_amount = 0.0f;
+    layer->blur_amount = blur_amount;
 
     stbi_image_free(data);
 
@@ -592,7 +611,7 @@ void sync_ipc_layers() {
             if (state.layer_count < state.max_layers) {
                 struct layer* new_layer = &state.layers[state.layer_count];
                 if (load_layer(new_layer, ipc_layer->image_path,
-                              ipc_layer->scale, ipc_layer->opacity) == 0) {
+                              ipc_layer->scale, ipc_layer->opacity, 0.0f) == 0) {
                     new_layer->image_path = strdup(ipc_layer->image_path);
                     state.layer_count++;
                 }
@@ -654,7 +673,7 @@ int add_layer(const char *path, float shift_multiplier, float opacity) {
     }
 
     struct layer *layer = &state.layers[state.layer_count];
-    if (load_layer(layer, path, shift_multiplier, opacity) == 0) {
+    if (load_layer(layer, path, shift_multiplier, opacity, 0.0f) == 0) {
         state.layer_count++;
         return 0;
     }
@@ -682,6 +701,10 @@ static const struct wl_callback_listener frame_listener = {
 
 // Render frame with optimizations
 void render_frame() {
+    // Don't render if OpenGL isn't initialized yet
+    if (state.shader_program == 0) {
+        return;
+    }
     double current_time = get_time();
 
     // Update animation for all layers
@@ -785,7 +808,14 @@ void render_frame() {
             glEnableVertexAttribArray(tex_attrib);
 
             // Select shader based on blur amount
-            if (layer->blur_amount > BLUR_MIN_THRESHOLD) {
+            if (layer->blur_amount > BLUR_MIN_THRESHOLD && state.blur_shader_program != 0) {
+                if (config.debug) {
+                    static int blur_count = 0;
+                    if (blur_count++ < 5) {  // Only print first 5 times to avoid spam
+                        fprintf(stderr, "Using blur shader for layer %d with blur amount: %.2f\n", 
+                                i, layer->blur_amount);
+                    }
+                }
                 glUseProgram(state.blur_shader_program);
 
                 // Bind layer texture and set uniforms using pre-cached locations
@@ -794,6 +824,7 @@ void render_frame() {
                 glUniform1f(state.blur_u_opacity, layer->opacity);
                 glUniform1f(state.blur_u_blur_amount, layer->blur_amount);
                 glUniform2f(state.blur_u_resolution, (float)state.width, (float)state.height);
+                
             } else {
                 glUseProgram(state.shader_program);
 
@@ -1426,6 +1457,11 @@ int parse_config_file(const char *filename) {
             float shift = shift_str ? atof(shift_str) : 1.0f;
             float opacity = opacity_str ? atof(opacity_str) : 1.0f;
             float blur = blur_str ? atof(blur_str) : 0.0f;
+            
+            if (config.debug) {
+                fprintf(stderr, "Config parse layer: image=%s, shift=%.2f, opacity=%.2f, blur=%.2f\n",
+                        image, shift, opacity, blur);
+            }
 
             // Initialize layer array if needed
             if (!state.layers) {
@@ -1475,6 +1511,9 @@ int parse_config_file(const char *filename) {
                 layer->shift_multiplier = shift;
                 layer->opacity = opacity;
                 layer->blur_amount = blur;
+                if (config.debug) {
+                    fprintf(stderr, "Stored layer %d: blur_amount=%.2f\n", state.layer_count, layer->blur_amount);
+                }
                 // Set defaults for Phase 3 features
                 layer->easing = config.easing;
                 layer->animation_delay = 0.0f;
@@ -1802,7 +1841,7 @@ int main(int argc, char *argv[]) {
         // Load all layers
         for (int i = 0; i < state.layer_count; i++) {
             struct layer *layer = &state.layers[i];
-            if (load_layer(layer, layer->image_path, layer->shift_multiplier, layer->opacity) < 0) {
+            if (load_layer(layer, layer->image_path, layer->shift_multiplier, layer->opacity, layer->blur_amount) < 0) {
                 fprintf(stderr, "Failed to load layer %d '%s': %s\n", i, layer->image_path, stbi_failure_reason());
                 return 1;
             }
