@@ -52,34 +52,77 @@ sudo mv hyprlax-aarch64 /usr/local/bin/hyprlax
 ### Dependencies
 _Only Arch Linux has been thorougly tested, if you find issues with dependency installations on your system, please open an issue_
 
-#### Arch Linux
+#### Core Dependencies
+
+##### Arch Linux
 ```bash
 sudo pacman -S base-devel wayland wayland-protocols mesa
 ```
 
-#### Ubuntu/Debian
+##### Ubuntu/Debian
 ```bash
 sudo apt update
 sudo apt install build-essential libwayland-dev wayland-protocols \
                  libegl1-mesa-dev libgles2-mesa-dev pkg-config
 ```
 
-#### Fedora
+##### Fedora
 ```bash
 sudo dnf install gcc make wayland-devel wayland-protocols-devel \
                  mesa-libEGL-devel mesa-libGLES-devel pkg-config
 ```
 
-#### openSUSE
+##### openSUSE
 ```bash
 sudo zypper install gcc make wayland-devel wayland-protocols-devel \
                      Mesa-libEGL-devel Mesa-libGLES-devel pkg-config
 ```
 
-#### Void Linux
+##### Void Linux
 ```bash
 sudo xbps-install base-devel wayland wayland-protocols \
                   MesaLib-devel pkg-config
+```
+
+#### Optional Dependencies for Development
+
+##### Testing Framework (Check)
+Required for running the test suite:
+
+```bash
+# Arch Linux
+sudo pacman -S check
+
+# Ubuntu/Debian
+sudo apt-get install check
+
+# Fedora
+sudo dnf install check-devel
+
+# openSUSE
+sudo zypper install check-devel
+
+# Void Linux
+sudo xbps-install check-devel
+```
+
+##### Memory Leak Detection (Valgrind)
+Optional but recommended for development:
+
+```bash
+# Most distributions
+sudo pacman -S valgrind     # Arch
+sudo apt-get install valgrind  # Ubuntu/Debian
+sudo dnf install valgrind   # Fedora
+sudo zypper install valgrind   # openSUSE
+sudo xbps-install valgrind  # Void
+
+# Arch Linux: For valgrind to work properly, you may need:
+sudo pacman -S debuginfod
+export DEBUGINFOD_URLS="https://debuginfod.archlinux.org"
+
+# Note: If valgrind fails with "unrecognised instruction", rebuild without -march=native:
+# make clean-tests && CFLAGS="-Wall -Wextra -O2 -Isrc" make test
 ```
 
 ### Build Process

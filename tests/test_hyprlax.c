@@ -1,40 +1,12 @@
-/*
- * Test suite for hyprlax
- * Tests core functionality without requiring Wayland environment
- */
-
+// Test suite for hyprlax core functionality using Check framework
+#include <check.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <math.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-
-// Test framework
-#define TEST(name) void test_##name()
-#define RUN_TEST(name) do { \
-    printf("Running %s...", #name); \
-    fflush(stdout); \
-    test_##name(); \
-    printf(" ✓\n"); \
-    tests_passed++; \
-} while(0)
-
-#define ASSERT(condition) do { \
-    if (!(condition)) { \
-        printf("\n  FAILED: %s:%d: %s\n", __FILE__, __LINE__, #condition); \
-        exit(1); \
-    } \
-} while(0)
-
-#define ASSERT_EQ(a, b) ASSERT((a) == (b))
-#define ASSERT_FLOAT_EQ(a, b) ASSERT(fabs((a) - (b)) < 0.0001)
-#define ASSERT_STR_EQ(a, b) ASSERT(strcmp((a), (b)) == 0)
-
-static int tests_passed = 0;
-static int tests_total = 0;
 
 // Include easing functions for testing (copied from hyprlax.c)
 typedef enum {
@@ -103,13 +75,16 @@ float apply_easing(float t, easing_type_t type) {
 }
 
 // Test cases
-TEST(easing_linear) {
-    ASSERT_FLOAT_EQ(apply_easing(0.0f, EASE_LINEAR), 0.0f);
-    ASSERT_FLOAT_EQ(apply_easing(0.5f, EASE_LINEAR), 0.5f);
-    ASSERT_FLOAT_EQ(apply_easing(1.0f, EASE_LINEAR), 1.0f);
+START_TEST(test_easing_linear)
+{
+    ck_assert_float_eq_tol(apply_easing(0.0f, EASE_LINEAR), 0.0f, 0.0001f);
+    ck_assert_float_eq_tol(apply_easing(0.5f, EASE_LINEAR), 0.5f, 0.0001f);
+    ck_assert_float_eq_tol(apply_easing(1.0f, EASE_LINEAR), 1.0f, 0.0001f);
 }
+END_TEST
 
-TEST(easing_boundaries) {
+START_TEST(test_easing_boundaries)
+{
     // Test all easing functions at boundaries
     easing_type_t types[] = {
         EASE_LINEAR, EASE_QUAD_OUT, EASE_CUBIC_OUT, EASE_QUART_OUT,
@@ -121,15 +96,17 @@ TEST(easing_boundaries) {
         // All should start at 0 (except back/elastic which can overshoot)
         float start = apply_easing(0.0f, types[i]);
         if (types[i] != EASE_BACK_OUT && types[i] != EASE_ELASTIC_OUT) {
-            ASSERT_FLOAT_EQ(start, 0.0f);
+            ck_assert_float_eq_tol(start, 0.0f, 0.0001f);
         }
         
         // All should end at 1
-        ASSERT_FLOAT_EQ(apply_easing(1.0f, types[i]), 1.0f);
+        ck_assert_float_eq_tol(apply_easing(1.0f, types[i]), 1.0f, 0.0001f);
     }
 }
+END_TEST
 
-TEST(easing_monotonic) {
+START_TEST(test_easing_monotonic)
+{
     // Test that most easing functions are monotonically increasing
     easing_type_t types[] = {
         EASE_LINEAR, EASE_QUAD_OUT, EASE_CUBIC_OUT, EASE_QUART_OUT,
@@ -141,55 +118,67 @@ TEST(easing_monotonic) {
         float prev = 0.0f;
         for (float t = 0.1f; t <= 1.0f; t += 0.1f) {
             float current = apply_easing(t, types[i]);
-            ASSERT(current >= prev);
+            ck_assert(current >= prev);
             prev = current;
         }
     }
 }
+END_TEST
 
-TEST(version_check) {
+START_TEST(test_version_check)
+{
     // Test that hyprlax binary exists and returns version
     int status = system("./hyprlax --version > /dev/null 2>&1");
-    ASSERT_EQ(WEXITSTATUS(status), 0);
+    ck_assert_int_eq(WEXITSTATUS(status), 0);
 }
+END_TEST
 
-TEST(help_output) {
+START_TEST(test_help_output)
+{
     // Test that help flag works
     int status = system("./hyprlax --help > /dev/null 2>&1");
-    ASSERT_EQ(WEXITSTATUS(status), 0);
+    ck_assert_int_eq(WEXITSTATUS(status), 0);
 }
+END_TEST
 
-TEST(invalid_args) {
+START_TEST(test_invalid_args)
+{
     // Test that invalid arguments are handled
     int status = system("./hyprlax --invalid-flag 2> /dev/null");
-    ASSERT(WEXITSTATUS(status) != 0);
+    ck_assert(WEXITSTATUS(status) != 0);
 }
+END_TEST
 
-TEST(missing_image) {
+START_TEST(test_missing_image)
+{
     // Test that missing image file is handled
     int status = system("./hyprlax /nonexistent/image.jpg 2> /dev/null");
-    ASSERT(WEXITSTATUS(status) != 0);
+    ck_assert(WEXITSTATUS(status) != 0);
 }
+END_TEST
 
-TEST(workspace_offset_calculation) {
+START_TEST(test_workspace_offset_calculation)
+{
     // Test workspace offset calculations
     float shift_per_workspace = 200.0f;
     int max_workspaces = 10;
     
     // Workspace 1 should have offset 0
     float offset = (1 - 1) * shift_per_workspace;
-    ASSERT_FLOAT_EQ(offset, 0.0f);
+    ck_assert_float_eq_tol(offset, 0.0f, 0.0001f);
     
     // Workspace 5 should have offset 800
     offset = (5 - 1) * shift_per_workspace;
-    ASSERT_FLOAT_EQ(offset, 800.0f);
+    ck_assert_float_eq_tol(offset, 800.0f, 0.0001f);
     
     // Workspace 10 should have offset 1800
     offset = (10 - 1) * shift_per_workspace;
-    ASSERT_FLOAT_EQ(offset, 1800.0f);
+    ck_assert_float_eq_tol(offset, 1800.0f, 0.0001f);
 }
+END_TEST
 
-TEST(animation_progress) {
+START_TEST(test_animation_progress)
+{
     // Test animation progress calculation
     float duration = 1.0f;
     float elapsed;
@@ -198,28 +187,30 @@ TEST(animation_progress) {
     // At start
     elapsed = 0.0f;
     progress = elapsed / duration;
-    ASSERT_FLOAT_EQ(progress, 0.0f);
+    ck_assert_float_eq_tol(progress, 0.0f, 0.0001f);
     
     // Halfway
     elapsed = 0.5f;
     progress = elapsed / duration;
-    ASSERT_FLOAT_EQ(progress, 0.5f);
+    ck_assert_float_eq_tol(progress, 0.5f, 0.0001f);
     
     // Complete
     elapsed = 1.0f;
     progress = elapsed / duration;
-    ASSERT_FLOAT_EQ(progress, 1.0f);
+    ck_assert_float_eq_tol(progress, 1.0f, 0.0001f);
     
     // Over time (should clamp)
     elapsed = 1.5f;
     progress = fminf(elapsed / duration, 1.0f);
-    ASSERT_FLOAT_EQ(progress, 1.0f);
+    ck_assert_float_eq_tol(progress, 1.0f, 0.0001f);
 }
+END_TEST
 
-TEST(config_parsing) {
+START_TEST(test_config_parsing)
+{
     // Create a test config file
     FILE *f = fopen("/tmp/test_hyprlax.conf", "w");
-    ASSERT(f != NULL);
+    ck_assert_ptr_nonnull(f);
     
     fprintf(f, "shift = 300\n");
     fprintf(f, "duration = 2.0\n");
@@ -230,7 +221,7 @@ TEST(config_parsing) {
     
     // Test that config file is readable
     f = fopen("/tmp/test_hyprlax.conf", "r");
-    ASSERT(f != NULL);
+    ck_assert_ptr_nonnull(f);
     
     char line[256];
     int found_shift = 0;
@@ -241,14 +232,16 @@ TEST(config_parsing) {
         if (strstr(line, "duration = 2.0")) found_duration = 1;
     }
     
-    ASSERT(found_shift);
-    ASSERT(found_duration);
+    ck_assert(found_shift);
+    ck_assert(found_duration);
     
     fclose(f);
     unlink("/tmp/test_hyprlax.conf");
 }
+END_TEST
 
-TEST(scale_factor_calculation) {
+START_TEST(test_scale_factor_calculation)
+{
     // Test scale factor calculations
     float shift_per_workspace = 200.0f;
     int max_workspaces = 10;
@@ -256,19 +249,20 @@ TEST(scale_factor_calculation) {
     
     // Maximum total shift
     float max_shift = shift_per_workspace * (max_workspaces - 1);
-    ASSERT_FLOAT_EQ(max_shift, 1800.0f);
+    ck_assert_float_eq_tol(max_shift, 1800.0f, 0.0001f);
     
     // Required texture width
     float required_width = viewport_width + max_shift;
-    ASSERT_FLOAT_EQ(required_width, 3720.0f);
+    ck_assert_float_eq_tol(required_width, 3720.0f, 0.0001f);
     
     // Scale factor
     float scale_factor = required_width / viewport_width;
-    ASSERT(scale_factor > 1.9f && scale_factor < 2.0f);
+    ck_assert(scale_factor > 1.9f && scale_factor < 2.0f);
 }
+END_TEST
 
-// Performance tests
-TEST(easing_performance) {
+START_TEST(test_easing_performance)
+{
     // Test that easing functions are fast enough
     const int iterations = 1000000;
     
@@ -278,42 +272,73 @@ TEST(easing_performance) {
     }
     
     // If we get here without timeout, performance is acceptable
-    ASSERT(1);
+    ck_assert(1);
 }
+END_TEST
 
-// Main test runner
-int main(int argc, char **argv) {
-    printf("\n=================================\n");
-    printf("     hyprlax Test Suite\n");
-    printf("=================================\n\n");
+// Create the test suite
+Suite *hyprlax_suite(void)
+{
+    Suite *s;
+    TCase *tc_easing;
+    TCase *tc_binary;
+    TCase *tc_calc;
+    TCase *tc_perf;
     
-    // Core functionality tests
-    RUN_TEST(easing_linear);
-    RUN_TEST(easing_boundaries);
-    RUN_TEST(easing_monotonic);
+    s = suite_create("Hyprlax");
     
-    // Binary tests (only if binary exists)
+    // Easing test case
+    tc_easing = tcase_create("Easing");
+    tcase_add_test(tc_easing, test_easing_linear);
+    tcase_add_test(tc_easing, test_easing_boundaries);
+    tcase_add_test(tc_easing, test_easing_monotonic);
+    suite_add_tcase(s, tc_easing);
+    
+    // Binary test case (conditional)
     if (access("./hyprlax", X_OK) == 0) {
-        RUN_TEST(version_check);
-        RUN_TEST(help_output);
-        RUN_TEST(invalid_args);
-        RUN_TEST(missing_image);
-    } else {
-        printf("Skipping binary tests (hyprlax not found)\n");
+        tc_binary = tcase_create("Binary");
+        tcase_add_test(tc_binary, test_version_check);
+        tcase_add_test(tc_binary, test_help_output);
+        tcase_add_test(tc_binary, test_invalid_args);
+        tcase_add_test(tc_binary, test_missing_image);
+        suite_add_tcase(s, tc_binary);
     }
     
-    // Calculation tests
-    RUN_TEST(workspace_offset_calculation);
-    RUN_TEST(animation_progress);
-    RUN_TEST(config_parsing);
-    RUN_TEST(scale_factor_calculation);
+    // Calculation test case
+    tc_calc = tcase_create("Calculations");
+    tcase_add_test(tc_calc, test_workspace_offset_calculation);
+    tcase_add_test(tc_calc, test_animation_progress);
+    tcase_add_test(tc_calc, test_config_parsing);
+    tcase_add_test(tc_calc, test_scale_factor_calculation);
+    suite_add_tcase(s, tc_calc);
     
-    // Performance tests
-    RUN_TEST(easing_performance);
+    // Performance test case
+    tc_perf = tcase_create("Performance");
+    tcase_set_timeout(tc_perf, 5);  // 5 second timeout
+    tcase_add_test(tc_perf, test_easing_performance);
+    suite_add_tcase(s, tc_perf);
     
-    printf("\n=================================\n");
-    printf("  All tests passed! (%d/%d)\n", tests_passed, tests_passed);
-    printf("=================================\n\n");
+    return s;
+}
+
+int main(void)
+{
+    int number_failed;
+    Suite *s;
+    SRunner *sr;
     
-    return 0;
+    s = hyprlax_suite();
+    sr = srunner_create(s);
+    
+    // Run in fork mode for test isolation
+    srunner_set_fork_status(sr, CK_FORK);
+    
+    // Run tests
+    srunner_run_all(sr, CK_NORMAL);
+    number_failed = srunner_ntests_failed(sr);
+    
+    // Cleanup
+    srunner_free(sr);
+    
+    return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

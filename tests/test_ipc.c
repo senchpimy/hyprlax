@@ -1,7 +1,5 @@
-/*
- * Test suite for hyprlax IPC functionality
- */
-
+// Test suite for hyprlax IPC functionality using Check framework
+#include <check.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,30 +7,10 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/wait.h>
-#include <assert.h>
 #include <pwd.h>
 #include <errno.h>
 
 #include "../src/ipc.h"
-
-// Test framework
-#define TEST(name) void test_##name()
-#define RUN_TEST(name) do { \
-    printf("Running %s...", #name); \
-    fflush(stdout); \
-    test_##name(); \
-    printf(" ✓\n"); \
-    tests_passed++; \
-} while(0)
-
-#define ASSERT(condition) do { \
-    if (!(condition)) { \
-        printf("\n  FAILED: %s:%d: %s\n", __FILE__, __LINE__, #condition); \
-        exit(1); \
-    } \
-} while(0)
-
-static int tests_passed = 0;
 
 // Helper function to get socket path
 static void get_test_socket_path(char* buffer, size_t size) {
@@ -44,135 +22,141 @@ static void get_test_socket_path(char* buffer, size_t size) {
     snprintf(buffer, size, "/tmp/hyprlax-test-%s.sock", user);
 }
 
+// Test fixture - runs before each test
+static ipc_context_t* test_ctx = NULL;
+static char* test_image = NULL;
+
+void setup(void) {
+    // Create test image file
+    test_image = strdup("/tmp/test_image.png");
+    FILE* f = fopen(test_image, "w");
+    if (f) fclose(f);
+}
+
+void teardown(void) {
+    // Clean up
+    if (test_ctx) {
+        ipc_cleanup(test_ctx);
+        test_ctx = NULL;
+    }
+    if (test_image) {
+        unlink(test_image);
+        free(test_image);
+        test_image = NULL;
+    }
+}
+
 // Test IPC initialization
-TEST(ipc_init) {
+START_TEST(test_ipc_init)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    ASSERT(ctx->active == true);
-    ASSERT(ctx->socket_fd >= 0);
-    ASSERT(ctx->layer_count == 0);
-    ASSERT(ctx->next_layer_id == 1);
+    ck_assert_ptr_nonnull(ctx);
+    ck_assert(ctx->active == true);
+    ck_assert_int_ge(ctx->socket_fd, 0);
+    ck_assert_int_eq(ctx->layer_count, 0);
+    ck_assert_int_eq(ctx->next_layer_id, 1);
     
     // Check socket exists
-    ASSERT(access(ctx->socket_path, F_OK) == 0);
+    ck_assert_int_eq(access(ctx->socket_path, F_OK), 0);
     
     ipc_cleanup(ctx);
     
     // Check socket is removed after cleanup
-    ASSERT(access(ctx->socket_path, F_OK) != 0);
+    ck_assert_int_ne(access(ctx->socket_path, F_OK), 0);
 }
+END_TEST
 
 // Test adding layers
-TEST(ipc_add_layer) {
+START_TEST(test_ipc_add_layer)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create a temporary test image file
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    ASSERT(f != NULL);
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add a layer
     uint32_t id1 = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 0);
-    ASSERT(id1 > 0);
-    ASSERT(ctx->layer_count == 1);
+    ck_assert_int_gt(id1, 0);
+    ck_assert_int_eq(ctx->layer_count, 1);
     
     // Add another layer
     uint32_t id2 = ipc_add_layer(ctx, test_image, 2.0f, 0.5f, 10.0f, 20.0f, 1);
-    ASSERT(id2 > id1);
-    ASSERT(ctx->layer_count == 2);
+    ck_assert_int_gt(id2, id1);
+    ck_assert_int_eq(ctx->layer_count, 2);
     
     // Verify layer properties
     layer_t* layer1 = ipc_find_layer(ctx, id1);
-    ASSERT(layer1 != NULL);
-    ASSERT(strcmp(layer1->image_path, test_image) == 0);
-    ASSERT(layer1->scale == 1.0f);
-    ASSERT(layer1->opacity == 1.0f);
+    ck_assert_ptr_nonnull(layer1);
+    ck_assert_str_eq(layer1->image_path, test_image);
+    ck_assert_float_eq(layer1->scale, 1.0f);
+    ck_assert_float_eq(layer1->opacity, 1.0f);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test removing layers
-TEST(ipc_remove_layer) {
+START_TEST(test_ipc_remove_layer)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add layers
     uint32_t id1 = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 0);
     uint32_t id2 = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 1);
-    ASSERT(ctx->layer_count == 2);
+    ck_assert_int_eq(ctx->layer_count, 2);
     
     // Remove first layer
-    ASSERT(ipc_remove_layer(ctx, id1) == true);
-    ASSERT(ctx->layer_count == 1);
-    ASSERT(ipc_find_layer(ctx, id1) == NULL);
-    ASSERT(ipc_find_layer(ctx, id2) != NULL);
+    ck_assert(ipc_remove_layer(ctx, id1) == true);
+    ck_assert_int_eq(ctx->layer_count, 1);
+    ck_assert_ptr_null(ipc_find_layer(ctx, id1));
+    ck_assert_ptr_nonnull(ipc_find_layer(ctx, id2));
     
     // Try to remove non-existent layer
-    ASSERT(ipc_remove_layer(ctx, 9999) == false);
+    ck_assert(ipc_remove_layer(ctx, 9999) == false);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test modifying layers
-TEST(ipc_modify_layer) {
+START_TEST(test_ipc_modify_layer)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add a layer
     uint32_t id = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 0);
     layer_t* layer = ipc_find_layer(ctx, id);
-    ASSERT(layer != NULL);
+    ck_assert_ptr_nonnull(layer);
     
     // Modify properties
-    ASSERT(ipc_modify_layer(ctx, id, "opacity", "0.5") == true);
-    ASSERT(layer->opacity == 0.5f);
+    ck_assert(ipc_modify_layer(ctx, id, "opacity", "0.5") == true);
+    ck_assert_float_eq(layer->opacity, 0.5f);
     
-    ASSERT(ipc_modify_layer(ctx, id, "scale", "2.5") == true);
-    ASSERT(layer->scale == 2.5f);
+    ck_assert(ipc_modify_layer(ctx, id, "scale", "2.5") == true);
+    ck_assert_float_eq(layer->scale, 2.5f);
     
-    ASSERT(ipc_modify_layer(ctx, id, "visible", "false") == true);
-    ASSERT(layer->visible == false);
+    ck_assert(ipc_modify_layer(ctx, id, "visible", "false") == true);
+    ck_assert(layer->visible == false);
     
-    ASSERT(ipc_modify_layer(ctx, id, "visible", "1") == true);
-    ASSERT(layer->visible == true);
+    ck_assert(ipc_modify_layer(ctx, id, "visible", "1") == true);
+    ck_assert(layer->visible == true);
     
     // Try invalid property
-    ASSERT(ipc_modify_layer(ctx, id, "invalid", "value") == false);
+    ck_assert(ipc_modify_layer(ctx, id, "invalid", "value") == false);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test listing layers
-TEST(ipc_list_layers) {
+START_TEST(test_ipc_list_layers)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
+    ck_assert_ptr_nonnull(ctx);
     
     // Empty list
     char* list = ipc_list_layers(ctx);
-    ASSERT(list == NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_null(list);
     
     // Add layers
     ipc_add_layer(ctx, test_image, 1.0f, 0.8f, 0.0f, 0.0f, 0);
@@ -180,58 +164,48 @@ TEST(ipc_list_layers) {
     
     // List layers
     list = ipc_list_layers(ctx);
-    ASSERT(list != NULL);
-    ASSERT(strstr(list, test_image) != NULL);
-    ASSERT(strstr(list, "Scale: 1.00") != NULL);
-    ASSERT(strstr(list, "Scale: 2.00") != NULL);
-    ASSERT(strstr(list, "Opacity: 0.80") != NULL);
-    ASSERT(strstr(list, "Opacity: 0.50") != NULL);
+    ck_assert_ptr_nonnull(list);
+    ck_assert_ptr_nonnull(strstr(list, test_image));
+    ck_assert_ptr_nonnull(strstr(list, "Scale: 1.00"));
+    ck_assert_ptr_nonnull(strstr(list, "Scale: 2.00"));
+    ck_assert_ptr_nonnull(strstr(list, "Opacity: 0.80"));
+    ck_assert_ptr_nonnull(strstr(list, "Opacity: 0.50"));
     free(list);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test clearing layers
-TEST(ipc_clear_layers) {
+START_TEST(test_ipc_clear_layers)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add layers
     ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 0);
     ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 1);
     ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 2);
-    ASSERT(ctx->layer_count == 3);
+    ck_assert_int_eq(ctx->layer_count, 3);
     
     // Clear all layers
     ipc_clear_layers(ctx);
-    ASSERT(ctx->layer_count == 0);
+    ck_assert_int_eq(ctx->layer_count, 0);
     
     // Verify layers are freed
     for (int i = 0; i < IPC_MAX_LAYERS; i++) {
-        ASSERT(ctx->layers[i] == NULL);
+        ck_assert_ptr_null(ctx->layers[i]);
     }
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test layer sorting
-TEST(ipc_sort_layers) {
+START_TEST(test_ipc_sort_layers)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add layers with different z-indices
     ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 5);
@@ -239,44 +213,39 @@ TEST(ipc_sort_layers) {
     ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 3);
     
     // Verify layers are sorted by z-index
-    ASSERT(ctx->layers[0]->z_index == 1);
-    ASSERT(ctx->layers[1]->z_index == 3);
-    ASSERT(ctx->layers[2]->z_index == 5);
+    ck_assert_int_eq(ctx->layers[0]->z_index, 1);
+    ck_assert_int_eq(ctx->layers[1]->z_index, 3);
+    ck_assert_int_eq(ctx->layers[2]->z_index, 5);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test max layers limit
-TEST(ipc_max_layers) {
+START_TEST(test_ipc_max_layers)
+{
     ipc_context_t* ctx = ipc_init();
-    ASSERT(ctx != NULL);
-    
-    // Create test image
-    const char* test_image = "/tmp/test_image.png";
-    FILE* f = fopen(test_image, "w");
-    fclose(f);
+    ck_assert_ptr_nonnull(ctx);
     
     // Add maximum number of layers
     for (int i = 0; i < IPC_MAX_LAYERS; i++) {
         uint32_t id = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, i);
-        ASSERT(id > 0);
+        ck_assert_int_gt(id, 0);
     }
-    ASSERT(ctx->layer_count == IPC_MAX_LAYERS);
+    ck_assert_int_eq(ctx->layer_count, IPC_MAX_LAYERS);
     
     // Try to add one more (should fail)
     uint32_t id = ipc_add_layer(ctx, test_image, 1.0f, 1.0f, 0.0f, 0.0f, 100);
-    ASSERT(id == 0);
-    ASSERT(ctx->layer_count == IPC_MAX_LAYERS);
+    ck_assert_int_eq(id, 0);
+    ck_assert_int_eq(ctx->layer_count, IPC_MAX_LAYERS);
     
-    // Clean up
-    unlink(test_image);
     ipc_cleanup(ctx);
 }
+END_TEST
 
 // Test client-server communication
-TEST(ipc_client_server) {
+START_TEST(test_ipc_client_server)
+{
     // Start a mock server
     pid_t pid = fork();
     if (pid == 0) {
@@ -310,7 +279,7 @@ TEST(ipc_client_server) {
     
     // Connect to server
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    ASSERT(sock >= 0);
+    ck_assert_int_ge(sock, 0);
     
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
@@ -337,7 +306,7 @@ TEST(ipc_client_server) {
         ssize_t n = recv(sock, buffer, sizeof(buffer) - 1, 0);
         if (n > 0) {
             buffer[n] = '\0';
-            ASSERT(strstr(buffer, "Status: Active") != NULL);
+            ck_assert_ptr_nonnull(strstr(buffer, "Status: Active"));
         }
     }
     
@@ -347,25 +316,64 @@ TEST(ipc_client_server) {
     int status;
     waitpid(pid, &status, 0);
 }
+END_TEST
 
-int main(int argc, char** argv) {
-    printf("\n=================================\n");
-    printf("     hyprlax IPC Test Suite\n");
-    printf("=================================\n\n");
+// Create the test suite
+Suite *ipc_suite(void)
+{
+    Suite *s;
+    TCase *tc_core;
+    TCase *tc_layers;
+    TCase *tc_comm;
     
-    RUN_TEST(ipc_init);
-    RUN_TEST(ipc_add_layer);
-    RUN_TEST(ipc_remove_layer);
-    RUN_TEST(ipc_modify_layer);
-    RUN_TEST(ipc_list_layers);
-    RUN_TEST(ipc_clear_layers);
-    RUN_TEST(ipc_sort_layers);
-    RUN_TEST(ipc_max_layers);
-    RUN_TEST(ipc_client_server);
+    s = suite_create("IPC");
     
-    printf("\n=================================\n");
-    printf("  All tests passed! (%d/%d)\n", tests_passed, tests_passed);
-    printf("=================================\n\n");
+    // Core test case
+    tc_core = tcase_create("Core");
+    tcase_add_checked_fixture(tc_core, setup, teardown);
+    tcase_add_test(tc_core, test_ipc_init);
+    suite_add_tcase(s, tc_core);
     
-    return 0;
+    // Layer management test case
+    tc_layers = tcase_create("Layers");
+    tcase_add_checked_fixture(tc_layers, setup, teardown);
+    tcase_add_test(tc_layers, test_ipc_add_layer);
+    tcase_add_test(tc_layers, test_ipc_remove_layer);
+    tcase_add_test(tc_layers, test_ipc_modify_layer);
+    tcase_add_test(tc_layers, test_ipc_list_layers);
+    tcase_add_test(tc_layers, test_ipc_clear_layers);
+    tcase_add_test(tc_layers, test_ipc_sort_layers);
+    tcase_add_test(tc_layers, test_ipc_max_layers);
+    suite_add_tcase(s, tc_layers);
+    
+    // Communication test case
+    tc_comm = tcase_create("Communication");
+    tcase_add_checked_fixture(tc_comm, setup, teardown);
+    tcase_set_timeout(tc_comm, 5);  // 5 second timeout
+    tcase_add_test(tc_comm, test_ipc_client_server);
+    suite_add_tcase(s, tc_comm);
+    
+    return s;
+}
+
+int main(void)
+{
+    int number_failed;
+    Suite *s;
+    SRunner *sr;
+    
+    s = ipc_suite();
+    sr = srunner_create(s);
+    
+    // Run in fork mode for test isolation
+    srunner_set_fork_status(sr, CK_FORK);
+    
+    // Run tests
+    srunner_run_all(sr, CK_NORMAL);
+    number_failed = srunner_ntests_failed(sr);
+    
+    // Cleanup
+    srunner_free(sr);
+    
+    return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

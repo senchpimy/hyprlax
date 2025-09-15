@@ -99,23 +99,96 @@ uninstall-user:
 	rm -f ~/.local/bin/$(TARGET)
 	rm -f ~/.local/bin/$(CTL_TARGET)
 
-# Test suite
-TEST_SRCS = tests/test_hyprlax.c
-TEST_TARGET = tests/test_hyprlax
-IPC_TEST_SRCS = tests/test_ipc.c src/ipc.c
-IPC_TEST_TARGET = tests/test_ipc
+# Test suite with Check framework
+CHECK_CFLAGS = $(shell pkg-config --cflags check 2>/dev/null)
+CHECK_LIBS = $(shell pkg-config --libs check 2>/dev/null)
+TEST_CFLAGS = $(CFLAGS) $(CHECK_CFLAGS)
+TEST_LIBS = $(CHECK_LIBS) -lm
 
-$(TEST_TARGET): $(TEST_SRCS) $(TARGET)
-	$(CC) $(CFLAGS) $(TEST_SRCS) -lm -o $(TEST_TARGET)
+# Valgrind settings for memory leak detection
+VALGRIND = valgrind
+VALGRIND_FLAGS = --leak-check=full --show-leak-kinds=definite,indirect --track-origins=yes --error-exitcode=1
+# For Arch Linux, enable debuginfod for symbol resolution
+export DEBUGINFOD_URLS ?= https://debuginfod.archlinux.org
 
-$(IPC_TEST_TARGET): $(IPC_TEST_SRCS)
-	$(CC) $(CFLAGS) $(IPC_TEST_SRCS) -o $(IPC_TEST_TARGET)
+TEST_TARGETS = tests/test_hyprlax tests/test_ipc tests/test_blur tests/test_config tests/test_animation tests/test_easing tests/test_shader
+ALL_TESTS = $(filter tests/test_%, $(wildcard tests/test_*.c))
+ALL_TEST_TARGETS = $(ALL_TESTS:.c=)
 
-test: $(TEST_TARGET) $(IPC_TEST_TARGET)
-	@echo "Running test suite..."
-	@./$(TEST_TARGET)
-	@echo "Running IPC test suite..."
-	@./$(IPC_TEST_TARGET)
+# Individual test rules - updated for Check framework
+tests/test_hyprlax: tests/test_hyprlax.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+tests/test_ipc: tests/test_ipc.c src/ipc.c
+	$(CC) $(TEST_CFLAGS) $^ $(TEST_LIBS) -o $@
+
+tests/test_blur: tests/test_blur.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+tests/test_config: tests/test_config.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+tests/test_animation: tests/test_animation.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+tests/test_easing: tests/test_easing.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+tests/test_shader: tests/test_shader.c
+	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
+
+# Run all tests
+test: $(ALL_TEST_TARGETS)
+	@echo "=== Running Full Test Suite ==="
+	@failed=0; \
+	for test in $(ALL_TEST_TARGETS); do \
+		if [ -x $$test ]; then \
+			echo "\n--- Running $$test ---"; \
+			if ! $$test; then \
+				echo "✗ $$test FAILED"; \
+				failed=$$((failed + 1)); \
+			else \
+				echo "✓ $$test PASSED"; \
+			fi; \
+		fi; \
+	done; \
+	echo "\n=== Test Summary ==="; \
+	if [ $$failed -eq 0 ]; then \
+		echo "✓ All tests passed!"; \
+	else \
+		echo "✗ $$failed test(s) failed"; \
+		exit 1; \
+	fi
+
+# Run tests with valgrind for memory leak detection
+memcheck: $(ALL_TEST_TARGETS)
+	@if ! command -v valgrind >/dev/null 2>&1; then \
+		echo "Error: valgrind is not installed."; \
+		echo "Install it with: sudo pacman -S valgrind (Arch) or sudo apt-get install valgrind (Debian/Ubuntu)"; \
+		exit 1; \
+	fi
+	@echo "=== Running Tests with Valgrind Memory Check ==="
+	@failed=0; \
+	for test in $(ALL_TEST_TARGETS); do \
+		if [ -x $$test ]; then \
+			echo "\n--- Memory check: $$test ---"; \
+			if ! $(VALGRIND) $(VALGRIND_FLAGS) --log-file=$$test.valgrind.log $$test > /dev/null 2>&1; then \
+				echo "✗ $$test MEMORY ISSUES DETECTED"; \
+				cat $$test.valgrind.log; \
+				failed=$$((failed + 1)); \
+			else \
+				echo "✓ $$test MEMORY CLEAN"; \
+				rm -f $$test.valgrind.log; \
+			fi; \
+		fi; \
+	done; \
+	echo "\n=== Memory Check Summary ==="; \
+	if [ $$failed -eq 0 ]; then \
+		echo "✓ All tests memory clean!"; \
+	else \
+		echo "✗ $$failed test(s) have memory issues"; \
+		exit 1; \
+	fi
 
 # Linting targets
 lint:
@@ -135,6 +208,6 @@ lint-fix:
 	fi
 
 clean-tests:
-	rm -f $(TEST_TARGET) $(IPC_TEST_TARGET)
+	rm -f $(ALL_TEST_TARGETS) tests/*.valgrind.log
 
-.PHONY: all clean install install-user uninstall uninstall-user test clean-tests lint lint-fix
+.PHONY: all clean install install-user uninstall uninstall-user test memcheck clean-tests lint lint-fix

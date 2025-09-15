@@ -134,6 +134,53 @@ MIT
 
 ## Development
 
+### Testing
+
+hyprlax uses the [Check](https://libcheck.github.io/check/) framework for unit testing. Tests cover core functionality including animations, configuration parsing, IPC, shaders, and more.
+
+#### Test Dependencies
+
+```bash
+# Arch Linux
+sudo pacman -S check
+
+# Ubuntu/Debian
+sudo apt-get install check
+
+# Fedora
+sudo dnf install check-devel
+```
+
+Optional for memory leak detection:
+```bash
+# Install valgrind (most distros)
+sudo pacman -S valgrind  # Arch
+sudo apt-get install valgrind  # Ubuntu/Debian
+
+# Arch Linux users may also need debug symbols:
+sudo pacman -S debuginfod
+# Then set environment variable:
+export DEBUGINFOD_URLS="https://debuginfod.archlinux.org"
+```
+
+#### Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests with memory leak detection
+make memcheck
+
+# Note: If valgrind reports "unhandled instruction", rebuild tests without -march=native:
+# make clean-tests && CFLAGS="-Wall -Wextra -O2" make test
+
+# Run individual test suites
+./tests/test_blur
+./tests/test_config
+./tests/test_animation
+```
+
 ### Code Quality Tools
 
 We provide linting tools to catch common issues before they reach CI:
