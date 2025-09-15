@@ -10,7 +10,7 @@ Smooth parallax wallpaper animations for Hyprland.
 
 ## Features
 
-- 🎬 **Buttery smooth animations** - GPU-accelerated rendering at up to 144 FPS
+- 🎬 **Buttery smooth animations** - GPU-accelerated rendering with configurable FPS.
 - 🖼️ **Parallax effect** - Wallpaper shifts as you switch workspaces
 - 🌌 **Multi-layer parallax** - Create depth with multiple layers moving at different speeds
 - 🔍 **Depth-of-field blur** - Realistic depth perception with per-layer blur effects
