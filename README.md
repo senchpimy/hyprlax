@@ -23,10 +23,18 @@ Smooth parallax wallpaper animations for Hyprland.
 
 ### Quick Install
 
+The easiest (but also least secure) method to install hyprlax is with the one-liner  
+
+```bash
+curl -sSL https://hyprlax.com/install.sh | bash
+```
+
+The next easiest (and more secure) method is to checkout the source and run the install script 
+
 ```bash
 git clone https://github.com/sandwichfarm/hyprlax.git
 cd hyprlax
-./install.sh        # Install for current user
+./install.sh        # Install for current user (~/.local/bin)
 ```
 
 ### Other Methods
