@@ -23,6 +23,9 @@ NC='\033[0m' # No Color
 INSTALL_TYPE="user"
 FORCE_INSTALL=0
 VERSION="latest"
+VERSION_2=0
+INCLUDE_PRERELEASES=0
+ALLOW_DOWNGRADE=0
 
 # Print colored output
 print_info() {
@@ -54,6 +57,9 @@ OPTIONS:
     -s, --system      Install system-wide (requires sudo)
     -u, --user        Install for current user only (default)
     -v, --version     Install specific version (default: latest)
+    -2, --v2          Install latest version 2.x.x release
+    -p, --prerelease  Include prereleases when using --v2
+    -d, --downgrade   Allow downgrades without confirmation
     -f, --force       Force reinstall even if same version exists
     -h, --help        Show this help message
 
@@ -61,6 +67,9 @@ EXAMPLES:
     curl -sSL https://hyprlax.com/install.sh | bash
     curl -sSL https://hyprlax.com/install.sh | bash -s -- --system
     curl -sSL https://hyprlax.com/install.sh | bash -s -- --version v1.2.3
+    curl -sSL https://hyprlax.com/install.sh | bash -s -- --v2
+    curl -sSL https://hyprlax.com/install.sh | bash -s -- --v2 --prerelease
+    curl -sSL https://hyprlax.com/install.sh | bash -s -- --version v1.0.0 --downgrade
 EOF
     exit 0
 }
@@ -79,6 +88,18 @@ while [[ $# -gt 0 ]]; do
         -v|--version)
             VERSION="$2"
             shift 2
+            ;;
+        -2|--v2)
+            VERSION_2=1
+            shift
+            ;;
+        -p|--prerelease)
+            INCLUDE_PRERELEASES=1
+            shift
+            ;;
+        -d|--downgrade)
+            ALLOW_DOWNGRADE=1
+            shift
             ;;
         -f|--force)
             FORCE_INSTALL=1
@@ -152,6 +173,102 @@ get_latest_version() {
     fi
     
     echo "$latest"
+}
+
+# Get latest v2.x.x release from GitHub
+get_latest_v2_version() {
+    local include_pre="$1"
+    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases"
+    
+    # If including prereleases, fetch all releases, otherwise just non-prereleases
+    local releases_json=$(curl -sSL "$api_url")
+    
+    if [ -z "$releases_json" ]; then
+        print_error "Failed to fetch releases from GitHub"
+        exit 1
+    fi
+    
+    # Extract all v2.x.x tags based on prerelease preference
+    local v2_versions
+    if [ "$include_pre" = "1" ]; then
+        # Include prereleases
+        v2_versions=$(echo "$releases_json" | \
+            grep -B1 '"tag_name"' | \
+            grep '"tag_name"' | \
+            sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' | \
+            grep -E '^v2\.')
+    else
+        # Exclude prereleases - look for releases where prerelease is false
+        v2_versions=$(echo "$releases_json" | \
+            python3 -c "
+import sys, json
+try:
+    releases = json.load(sys.stdin)
+    for r in releases:
+        if not r.get('prerelease', True) and r.get('tag_name', '').startswith('v2.'):
+            print(r['tag_name'])
+except:
+    pass
+" 2>/dev/null)
+        
+        # Fallback to jq if python3 is not available
+        if [ -z "$v2_versions" ] && command -v jq &> /dev/null; then
+            v2_versions=$(echo "$releases_json" | \
+                jq -r '.[] | select(.prerelease == false) | select(.tag_name | startswith("v2.")) | .tag_name')
+        fi
+        
+        # Final fallback - parse JSON manually (less reliable)
+        if [ -z "$v2_versions" ]; then
+            # This is a crude parser that looks for patterns
+            v2_versions=$(echo "$releases_json" | \
+                awk '/"tag_name".*v2\./ {
+                    tag = $0
+                    gsub(/.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", tag)
+                    gsub(/".*/, "", tag)
+                    current_tag = tag
+                }
+                /"prerelease"[[:space:]]*:[[:space:]]*false/ {
+                    if (current_tag && substr(current_tag, 1, 2) == "v2") {
+                        print current_tag
+                        current_tag = ""
+                    }
+                }')
+        fi
+    fi
+    
+    if [ -z "$v2_versions" ]; then
+        print_error "No v2.x.x releases found"
+        if [ "$include_pre" = "0" ]; then
+            print_info "Try with --prerelease flag to include pre-release versions"
+        fi
+        exit 1
+    fi
+    
+    # Sort versions and get the latest
+    # Convert versions to sortable format and find max
+    local latest_v2=""
+    local max_version="000000000"
+    
+    while IFS= read -r version; do
+        # Remove 'v' prefix and any prerelease suffix for comparison
+        local clean_version="${version#v}"
+        local base_version="${clean_version%%-*}"
+        
+        # Convert to sortable format (e.g., 2.1.0 -> 002001000)
+        local sortable=$(echo "$base_version" | awk -F. '{printf "%03d%03d%03d", $1, $2, $3}' 2>/dev/null)
+        
+        if [ "$sortable" -gt "$max_version" ]; then
+            max_version="$sortable"
+            latest_v2="$version"
+        fi
+    done <<< "$v2_versions"
+    
+    if [ -z "$latest_v2" ]; then
+        print_error "Could not determine latest v2 version"
+        exit 1
+    fi
+    
+    echo "$latest_v2"
 }
 
 # Compare versions
@@ -297,7 +414,15 @@ main() {
     INSTALLED_VERSION=$(get_installed_version)
     
     # Determine version to install
-    if [ "$VERSION" = "latest" ]; then
+    if [ "$VERSION_2" = "1" ]; then
+        # Get latest v2.x.x version
+        VERSION=$(get_latest_v2_version "$INCLUDE_PRERELEASES")
+        if [ "$INCLUDE_PRERELEASES" = "1" ]; then
+            print_info "Latest v2.x.x version (including prereleases): $VERSION"
+        else
+            print_info "Latest stable v2.x.x version: $VERSION"
+        fi
+    elif [ "$VERSION" = "latest" ]; then
         VERSION=$(get_latest_version)
         print_info "Latest version available: $VERSION"
     else
@@ -319,10 +444,41 @@ main() {
             print_info "Use --force to reinstall"
             exit 0
         elif [ "$CMP" = "1" ]; then
-            print_warning "Installed version ($INSTALLED_VERSION) is newer than requested ($VERSION_NUM)"
-            if [ "$FORCE_INSTALL" = "0" ]; then
-                print_info "Use --force to downgrade"
-                exit 0
+            # Downgrade warning
+            echo
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}⚠️  DOWNGRADE WARNING ⚠️${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo
+            echo -e "${YELLOW}Current version:${NC} ${GREEN}$INSTALLED_VERSION${NC}"
+            echo -e "${YELLOW}Target version:${NC}  ${RED}$VERSION_NUM${NC} ${RED}(OLDER)${NC}"
+            echo
+            echo -e "${RED}You are attempting to DOWNGRADE hyprlax!${NC}"
+            echo -e "${YELLOW}This may cause compatibility issues or data loss.${NC}"
+            echo
+            
+            if [ "$ALLOW_DOWNGRADE" = "0" ] && [ "$FORCE_INSTALL" = "0" ]; then
+                # Ask for confirmation
+                echo -e "${CYAN}Do you want to proceed with the downgrade?${NC}"
+                echo -e "${CYAN}Type ${YELLOW}yes${CYAN} to continue or ${YELLOW}no${CYAN} to cancel:${NC} "
+                
+                # Use /dev/tty for input when piped through bash
+                if [ -t 0 ]; then
+                    read -r RESPONSE
+                else
+                    read -r RESPONSE < /dev/tty
+                fi
+                
+                if [ "$RESPONSE" != "yes" ]; then
+                    print_info "Downgrade cancelled"
+                    exit 0
+                fi
+                echo
+                print_warning "Proceeding with downgrade..."
+            elif [ "$ALLOW_DOWNGRADE" = "1" ]; then
+                print_warning "Downgrade allowed via --downgrade flag"
+            elif [ "$FORCE_INSTALL" = "1" ]; then
+                print_warning "Downgrade forced via --force flag"
             fi
         elif [ "$CMP" = "-1" ]; then
             print_success "Upgrade available: $INSTALLED_VERSION → $VERSION_NUM"
