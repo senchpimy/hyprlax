@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discord Community
+    url: https://discord.gg/hyprlax
+    about: Join our Discord for help, discussions, and community support
+  - name: Documentation
+    url: https://github.com/sandwichfarm/hyprlax/tree/master/docs
+    about: Check our documentation for configuration and usage guides
+  - name: Troubleshooting Guide
+    url: https://github.com/sandwichfarm/hyprlax/blob/master/docs/troubleshooting.md
+    about: Common issues and their solutions
