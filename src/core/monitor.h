@@ -67,6 +67,8 @@ typedef struct monitor_instance {
     /* Workspace tracking (flexible model support) */
     workspace_context_t current_context;  /* Current workspace/tag/set state */
     workspace_context_t previous_context; /* Previous state for comparison */
+    bool origin_set;                      /* Have we captured an origin context? */
+    workspace_context_t origin_context;   /* Anchor for absolute positioning */
     float parallax_offset_x;             /* Calculated parallax offset */
     float parallax_offset_y;
 
@@ -129,6 +131,10 @@ void monitor_start_parallax_animation(hyprlax_context_t *ctx,
 void monitor_start_parallax_animation_offset(hyprlax_context_t *ctx,
                                             monitor_instance_t *monitor,
                                             float offset);
+/* Start parallax animation to an absolute X target (in pixels). */
+void monitor_start_parallax_animation_to(hyprlax_context_t *ctx,
+                                         monitor_instance_t *monitor,
+                                         float absolute_target_x);
 void monitor_update_animation(monitor_instance_t *monitor, double current_time);
 
 /* Frame management */
@@ -143,5 +149,9 @@ void monitor_update_geometry(monitor_instance_t *monitor,
 void monitor_set_global_position(monitor_instance_t *monitor, int x, int y);
 const char* monitor_get_name(monitor_instance_t *monitor);
 bool monitor_is_active(monitor_instance_t *monitor);
+
+/* Compute effective shift in pixels given config and a monitor.
+ * Falls back to defaults if values are unset. */
+float monitor_effective_shift_px(const config_t *cfg, const monitor_instance_t *monitor);
 
 #endif /* MONITOR_H */

@@ -86,6 +86,7 @@ typedef struct parallax_layer {
 
     layer_fit_mode_t fit_mode;
     float content_scale;          /* Additional scale multiplier (1.0 = no change) */
+    bool  scale_is_custom;        /* true if set per-layer; false = inherits global */
     float align_x;                /* 0.0 left, 0.5 center, 1.0 right (for cover/crop alignment) */
     float align_y;                /* 0.0 top, 0.5 center, 1.0 bottom */
     float base_uv_x;              /* Initial UV pan offset (adds to parallax) */
@@ -125,7 +126,8 @@ typedef struct {
     float idle_poll_rate;  /* Polling rate when idle in Hz (default: 2.0 = 500ms) */
 
     /* Animation settings */
-    float shift_pixels;
+    float shift_percent;        /* NEW: Shift as percentage of viewport width (0-100) */
+    float shift_pixels;         /* DEPRECATED: Use shift_percent instead */
     double animation_duration;
     easing_type_t default_easing;
 
