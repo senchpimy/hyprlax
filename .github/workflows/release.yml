@@ -128,16 +128,67 @@ jobs:
     - name: Generate release notes
       id: notes
       run: |
-        # Get commits since last tag
-        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        # Get all tags sorted by version
+        git fetch --tags
+        
+        # Get the previous release tag (excluding pre-releases and current tag)
+        PREV_TAG=$(git tag -l 'v*' | grep -v '-' | grep -v "^${GITHUB_REF_NAME}$" | sort -V | tail -1)
+        
         if [ -z "$PREV_TAG" ]; then
-          echo "notes=Initial release of hyprlax" >> $GITHUB_OUTPUT
+          echo "First stable release - no previous stable version found"
+          # Get last 30 commits for initial release
+          COMMITS=$(git log HEAD~30..HEAD --pretty=format:"%h %s" 2>/dev/null || git log --pretty=format:"%h %s" | head -30)
         else
-          NOTES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" | head -20)
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Previous stable release: $PREV_TAG"
+          # Get commits since last stable tag
+          COMMITS=$(git log ${PREV_TAG}..HEAD --pretty=format:"%h %s")
         fi
+        
+        # Process commits to extract PRs and categorize
+        FEATURES=""
+        FIXES=""
+        DOCS=""
+        OTHER=""
+        
+        while IFS= read -r line; do
+          if [[ "$line" == *"feat"* ]] || [[ "$line" == *"feature"* ]] || [[ "$line" == *"add"* ]]; then
+            FEATURES="${FEATURES}- ${line}\n"
+          elif [[ "$line" == *"fix"* ]] || [[ "$line" == *"bug"* ]]; then
+            FIXES="${FIXES}- ${line}\n"
+          elif [[ "$line" == *"doc"* ]] || [[ "$line" == *"readme"* ]]; then
+            DOCS="${DOCS}- ${line}\n"
+          else
+            OTHER="${OTHER}- ${line}\n"
+          fi
+        done <<< "$COMMITS"
+        
+        # Build categorized notes
+        NOTES=""
+        if [ -n "$FEATURES" ]; then
+          NOTES="${NOTES}### ✨ New Features\n${FEATURES}\n"
+        fi
+        if [ -n "$FIXES" ]; then
+          NOTES="${NOTES}### 🐛 Bug Fixes\n${FIXES}\n"
+        fi
+        if [ -n "$DOCS" ]; then
+          NOTES="${NOTES}### 📚 Documentation\n${DOCS}\n"
+        fi
+        if [ -n "$OTHER" ]; then
+          NOTES="${NOTES}### 🔧 Other Changes\n${OTHER}\n"
+        fi
+        
+        # If no categorized commits, show all commits
+        if [ -z "$NOTES" ]; then
+          NOTES=$(echo "$COMMITS" | sed 's/^/- /')
+        fi
+        
+        # Format the notes with proper escaping
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo -e "$NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        # Also save the previous tag for the release body
+        echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -145,13 +196,14 @@ jobs:
         tag_name: ${{ steps.version.outputs.version }}
         name: ${{ steps.version.outputs.version }}
         body: |
-          ## Release ${{ steps.version.outputs.version }}
+          ## hyprlax ${{ steps.version.outputs.version }}
           
           Multi-compositor parallax wallpaper engine for Linux.
+          ${{ steps.notes.outputs.prev_tag && format('**Changes since {0}**', steps.notes.outputs.prev_tag) || '**Initial stable release**' }}
           
-          ### Installation
+          ### 📦 Installation
           
-          Download the binary:
+          **Download the binary:**
           - `hyprlax-x86_64` - hyprlax binary for x86_64 systems (control interface integrated)
           
           ```bash
@@ -167,13 +219,17 @@ jobs:
           
           For ARM64 and other architectures, please build from source.
           
-          ### Changes
+          ---
+          
+          ## What's Changed
           
           ${{ steps.notes.outputs.notes }}
           
-          ### Checksums
+          ---
           
-          Verify your download with SHA256SUMS file.
+          ### 🔐 Checksums
+          
+          Verify your download with the SHA256SUMS file included in the release assets.
           
         files: |
           hyprlax-x86_64
