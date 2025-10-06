@@ -15,7 +15,7 @@
   ];
 </script>
 
-<div class="flex gap-6">
+<div class="flex gap-6 mb-6">
   {#each links as link}
     <a 
       href={link.url} 

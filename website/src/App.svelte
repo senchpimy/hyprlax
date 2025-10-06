@@ -5,6 +5,7 @@
   import SupportedCompositors from './lib/SupportedCompositors.svelte';
   import Features from './lib/Features.svelte';
   import SocialLinks from './lib/SocialLinks.svelte';
+    import RedditAnnouncement from './lib/RedditAnnouncement.svelte';
   
   let mouseX = 0.5;
   let mouseY = 0.5;
@@ -90,9 +91,9 @@
     <Hero {mouseX} {mouseY} />
     <InstallCommand />
     <SocialLinks />
+    <RedditAnnouncement />
     <SupportedCompositors />
     <Features />
-    
   </div>
 </main>
 
