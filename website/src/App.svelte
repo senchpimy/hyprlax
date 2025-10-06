@@ -69,7 +69,7 @@
   });
 </script>
 
-<main class="min-h-screen w-full flex flex-col items-center justify-center relative">
+<main class="min-h-screen w-full flex flex-col items-center justify-center relative mb-4">
   <!-- Interactive gradient background - subtle dark gradient -->
   <div 
     class="absolute inset-0"
@@ -89,9 +89,10 @@
   <div class="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center">
     <Hero {mouseX} {mouseY} />
     <InstallCommand />
+    <SocialLinks />
     <SupportedCompositors />
     <Features />
-    <SocialLinks />
+    
   </div>
 </main>
 
