@@ -1,6 +1,6 @@
 # Maintainer: Sandwich Farm <maintainers@sandwich.farm>
 pkgname=hyprlax-git
-pkgver=r106.c8e28f9
+pkgver=r122.2283dc9
 pkgrel=1
 pkgdesc="Smooth parallax wallpaper animation for Hyprland and other Wayland compositors"
 arch=('x86_64' 'aarch64')
@@ -11,7 +11,6 @@ makedepends=('git' 'wayland' 'wayland-protocols')
 optdepends=(
   'hyprland: Hyprland IPC integration'
   'sway: Sway/i3 IPC integration'
-  'wayfire: Wayfire 2D workspace support'
   'river: River tag-based workspaces'
   'niri: Niri scrollable workspaces'
 )

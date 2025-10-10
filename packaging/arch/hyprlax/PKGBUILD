@@ -1,6 +1,6 @@
 # Maintainer: Sandwich Farm <maintainers@sandwich.farm>
 pkgname=hyprlax
-pkgver=0.0.0
+pkgver=2.1.2
 pkgrel=1
 pkgdesc="Smooth parallax wallpaper animation for Hyprland and other Wayland compositors"
 arch=('x86_64' 'aarch64')
@@ -11,7 +11,6 @@ makedepends=('wayland' 'wayland-protocols')
 optdepends=(
   'hyprland: Hyprland IPC integration'
   'sway: Sway/i3 IPC integration'
-  'wayfire: Wayfire 2D workspace support'
   'river: River tag-based workspaces'
   'niri: Niri scrollable workspaces'
 )
@@ -29,4 +28,3 @@ package() {
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
 }
-
