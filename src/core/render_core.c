@@ -298,11 +298,22 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
 
                     // convert to rgba
                     uint8_t *rgba_buffer = malloc(gif->width * gif->height * 4);
+
+                    bool has_transparency = gif->gce.transparency;
+                    uint8_t transparent_index = gif->gce.tindex;   
+
                     for (int j = 0; j < gif->width * gif->height; j++) {
+                    uint8_t color_index = gif->frame[j];
+
                         rgba_buffer[j * 4 + 0] = buffer[j * 3 + 0];
                         rgba_buffer[j * 4 + 1] = buffer[j * 3 + 1];
                         rgba_buffer[j * 4 + 2] = buffer[j * 3 + 2];
-                        rgba_buffer[j * 4 + 3] = 255;
+                    
+                        if (has_transparency && color_index == transparent_index) {
+                            rgba_buffer[j * 4 + 3] = 0;
+                        } else {
+                            rgba_buffer[j * 4 + 3] = 255;
+                        }
                     }
 
                     GLuint texture;

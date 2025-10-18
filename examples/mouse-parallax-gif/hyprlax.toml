@@ -32,8 +32,7 @@ easing = "expo"
 
 # Layers are rendered back -> front
 [[global.layers]]
-#path = "bg.jpg"  # blurred background image
-path = "bg.gif"  # blurred background image
+path = "bg.jpg"  # blurred background image
 shift_multiplier = { x = 0.50, y = 0.25 }
 scale = 0.7
 opacity = 0.3
@@ -43,7 +42,7 @@ align = { x = 0.5, y = 0.5 }
 margin_px = { x = 100, y = 100 }
 
 [[global.layers]]
-path = "flower.png"
+path = "lain.gif"
 fit = "contain"              # no stretching
 scale = 0.70                 # smaller → sits
 align = { x = 0.5, y = -0.2 } 
