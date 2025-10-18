@@ -144,7 +144,8 @@ SRCS = $(MAIN_SRCS) src/ipc.c $(CORE_SRCS) $(RENDERER_SRCS) $(PLATFORM_SRCS) \
        $(COMPOSITOR_SRCS) $(PROTOCOL_SRCS)
 
 # Vendor libraries and optional modules
-SRCS += src/vendor/toml.c src/core/config_toml.c src/core/config_legacy.c
+#SRCS += src/vendor/toml.c src/core/config_toml.c src/core/config_legacy.c
+SRCS += src/vendor/toml.c src/vendor/gifdec.c src/core/config_toml.c src/core/config_legacy.c
 OBJS = $(SRCS:.c=.o)
 TARGET = hyprlax
 
