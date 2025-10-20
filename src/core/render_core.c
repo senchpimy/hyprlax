@@ -338,6 +338,8 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
                     free(rgba_buffer);
                 }
                 layer->texture_id = layer->gif_textures[0];
+                layer->current_frame = 0;
+                layer->last_frame_time = rc_get_time();
                 loaded++;
             } else {
                 int img_width, img_height;
