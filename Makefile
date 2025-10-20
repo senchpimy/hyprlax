@@ -318,7 +318,7 @@ tests/test_toml_config: tests/test_toml_config.c src/core/config_toml.c src/core
 	$(CC) $(TEST_CFLAGS) -Isrc -Isrc/include $^ $(TEST_LIBS) -o $@
 
 tests/test_runtime_properties: tests/test_runtime_properties.c tests/stubs_gfx.c \
-    src/hyprlax_main.c src/core/parallax.c src/core/log.c src/core/config.c src/core/layer.c \
+    src/hyprlax_main.c src/core/log.c src/core/config.c src/core/layer.c \
     src/core/monitor.c src/core/event_loop.c src/core/input/input_manager.c src/core/input/providers.c \
     src/core/input/modes/workspace.c src/core/input/modes/cursor.c src/core/input/modes/window.c \
     src/core/animation.c src/core/easing.c src/vendor/toml.c src/core/config_toml.c
