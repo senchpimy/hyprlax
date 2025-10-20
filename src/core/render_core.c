@@ -266,7 +266,7 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
     while (layer) {
         if (layer->texture_id == 0 && layer->image_path) {
             const char *ext = strrchr(layer->image_path, '.');
-            if (ext && strcmp(ext, ".gif") == 0) {
+            if (ext && strcasecmp(ext, ".gif") == 0) {
                 layer->is_gif = true;
                 gd_GIF *gif = gd_open_gif(layer->image_path);
                 if (!gif) {
