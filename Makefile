@@ -312,7 +312,7 @@ tests/test_compositor_caps: tests/test_compositor_caps.c \
 	$(CC) $(TEST_CFLAGS) -Isrc -Isrc/include $^ $(TEST_LIBS) $(PKG_LIBS) -o $@
 
 # New parallax-related tests
-tests/test_toml_config: tests/test_toml_config.c src/core/config_toml.c src/core/config.c src/core/parallax.c src/core/log.c src/core/easing.c src/vendor/toml.c \
+tests/test_toml_config: tests/test_toml_config.c src/core/config_toml.c src/core/config.c src/core/log.c src/core/easing.c src/vendor/toml.c \
     src/core/input/input_manager.c src/core/input/providers.c src/core/input/modes/workspace.c \
     src/core/input/modes/cursor.c src/core/input/modes/window.c src/core/animation.c
 	$(CC) $(TEST_CFLAGS) -Isrc -Isrc/include $^ $(TEST_LIBS) -o $@
