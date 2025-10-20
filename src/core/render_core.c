@@ -287,6 +287,12 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
                 }
                 gd_rewind(gif);
 
+                if (frame_count == 0) {
+                    LOG_ERROR("GIF file has no frames: %s", layer->image_path);
+                    gd_close_gif(gif);
+                    continue;
+                }
+
                 layer->frame_count = frame_count;
                 layer->gif_textures = calloc(frame_count, sizeof(GLuint));
                 layer->gif_delays = calloc(frame_count, sizeof(int));
@@ -300,15 +306,15 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
                     uint8_t *rgba_buffer = malloc(gif->width * gif->height * 4);
 
                     bool has_transparency = gif->gce.transparency;
-                    uint8_t transparent_index = gif->gce.tindex;   
+                    uint8_t transparent_index = gif->gce.tindex;
 
                     for (int j = 0; j < gif->width * gif->height; j++) {
-                    uint8_t color_index = gif->frame[j];
+                        uint8_t color_index = gif->frame[j];
 
                         rgba_buffer[j * 4 + 0] = buffer[j * 3 + 0];
                         rgba_buffer[j * 4 + 1] = buffer[j * 3 + 1];
                         rgba_buffer[j * 4 + 2] = buffer[j * 3 + 2];
-                    
+
                         if (has_transparency && color_index == transparent_index) {
                             rgba_buffer[j * 4 + 3] = 0;
                         } else {
