@@ -286,6 +286,9 @@ tests/test_animation_state: tests/test_animation_state.c
 tests/test_config_validation: tests/test_config_validation.c
 	$(CC) $(TEST_CFLAGS) $< $(TEST_LIBS) -o $@
 
+tests/test_gif: tests/test_gif.c src/vendor/gifdec.c
+	$(CC) $(TEST_CFLAGS) -Isrc -Isrc/include $^ $(TEST_LIBS) -o $@
+
 # Hyprland event parsing tests (link hyprland adapter and core compositor utils)
 tests/test_hyprland_events: tests/test_hyprland_events.c src/compositor/hyprland.c src/compositor/compositor.c src/core/log.c
 	$(CC) $(TEST_CFLAGS) -DUNIT_TEST -Isrc -Isrc/include $^ $(TEST_LIBS) -o $@
