@@ -332,7 +332,7 @@ int hyprlax_load_layer_textures(hyprlax_context_t *ctx) {
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
                     layer->gif_textures[i] = texture;
-                    layer->gif_delays[i] = gif->gce.delay * 10;
+                    layer->gif_delays[i] = (gif->gce.delay * 10 >= 10) ? gif->gce.delay * 10 : 10;
 
                     free(buffer);
                     free(rgba_buffer);
