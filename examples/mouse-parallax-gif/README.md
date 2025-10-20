@@ -13,7 +13,7 @@ Foreground flower with a blurred background driven by smooth mouse motion.
 ## How To Use
 
 ```bash
-./hyprlax --config examples/mouse-parallax/hyprlax.toml
+./hyprlax --config examples/mouse-parallax-gif/hyprlax.toml
 ```
 
 Tips:
